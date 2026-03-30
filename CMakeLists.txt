@@ -1,7 +1,25 @@
 cmake_minimum_required(VERSION 3.18)
 project(TconT_Workspace LANGUAGES CXX CUDA)
 
+# Set C++ and CUDA standards
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_ARCHITECTURES 89)
+
+
+find_package(OpenMP REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+
+
 # Add your library first so benchmarks can find it
-add_subdirectory(tcont)
+add_subdirectory(backends/cogent)
+add_subdirectory(backends/ttgt_cutt)
+
+# Add the main library
+add_subdirectory(src)
+
+# Add benchmarks 
 add_subdirectory(benchmarks)
 
