@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define CHECK_CUDA(call)														 \
+#define HANDLE_CUDA_ERROR(call)														 \
 	do {																		 \
 		cudaError_t status_ = call;												 \
 		if(status_ != cudaSuccess) {											 \

@@ -51,13 +51,13 @@ def tc_code_include(f):
 
 # Input : target_number, str_target_number, str_target_number_config, list_inner_group, list_interface_info, opt_pre_computed, opt_data_type
 # Output : none
-def tc_code_gen(l_inner_groups, l_interface_info, kernel_bin, data_type, opt_pre_computed, check_cuda) :
+def tc_code_gen(l_inner_groups, code_path, data_type, opt_pre_computed, check_cuda) :
     #
     # print("[Code Generator][tc_code_gen] Generate Kernels")
     
     # file open
-    # print(f"file name : {kernel_bin}.cu", file=sys.stderr)
-    f = open(f"code/{kernel_bin}.cu", "w")
+    # print(f"file name : {code_path}", file=sys.stderr)
+    f = open(code_path, "w")
 
     # write pragma and include
     tc_code_include(f)

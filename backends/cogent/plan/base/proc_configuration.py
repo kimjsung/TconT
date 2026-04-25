@@ -206,12 +206,15 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
             # print(f"index_mapping : {index_mapping}", file=sys.stderr)
             # print(f"config_struct : {config_struct}", file=sys.stderr)
 
+            configuration_info_flag = 0
+
             #
             if len(l_config) < 1 :
                 print("[Code Generator][get_configurations] ERROR : Problem(s) in Enumerating Configurations", file=sys.stderr)
-                os.makedirs("pruning_results", exist_ok=True)
-                with open(f"pruning_results/error_{equation}.txt", "a") as f :
-                    f.write(f"eq : {equation}, variant : {variant_num}, # of l_configs before pruning : {len(l_config)}\n")
+                if configuration_info_flag :
+                    os.makedirs("pruning_results", exist_ok=True)
+                    with open(f"pruning_results/error_{equation}.txt", "a") as f :
+                        f.write(f"eq : {equation}, variant : {variant_num}, # of l_configs before pruning : {len(l_config)}\n")
                 sys.exit()
             
             #
@@ -227,7 +230,6 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
             if pruning_flag :
                 pruned_config = tc_pruning.apply_pruning(l_config, config_struct, swap_flag, m_frag_rank, m_reg_rank)
 
-                configuration_info_flag = 0
                 if configuration_info_flag :
                     os.makedirs("configuration_info", exist_ok=True)
                     os.makedirs(f"configuration_info/eq_{equation}", exist_ok=True)
@@ -255,9 +257,10 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                     tc_cost_model.cost_model_total(l_config)
                     l_config.sort(key = lambda x: x.cost_total_v2)
                     l_configurations_outer_group.append(l_config[0])
-                    os.makedirs("pruning_results", exist_ok=True)
-                    with open(f"pruning_results/error_{equation}.txt", "a") as f :
-                        f.write(f"eq : {equation}, variant : {variant_num}, # of configs before pruning : {len(l_config)}, # of configs after pruning : {len(pruned_config)}\n")
+                    if configuration_info_flag :
+                        os.makedirs("pruning_results", exist_ok=True)
+                        with open(f"pruning_results/error_{equation}.txt", "a") as f :
+                            f.write(f"eq : {equation}, variant : {variant_num}, # of configs before pruning : {len(l_config)}, # of configs after pruning : {len(pruned_config)}\n")
                     sys.exit()
                 else :
                     tc_cost_model.cost_model_total(pruned_config)
@@ -282,9 +285,11 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                     warp_shape = pruned_config[0].warp_shape
 
                     smem_size = pruned_config[0].smem_per_block
-                    os.makedirs("model/config_info3", exist_ok=True)
-                    with open(f"model/config_info3/eq_{equation}.txt", "a") as f :
-                        f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size}\n")
+
+                    if configuration_info_flag :
+                        os.makedirs("model/config_info3", exist_ok=True)
+                        with open(f"model/config_info3/eq_{equation}.txt", "a") as f :
+                            f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size}\n")
 
             else :
                 ###############################################################################################################

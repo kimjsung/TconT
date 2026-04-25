@@ -1,359 +1,19 @@
-/**
- * @file tccg_bench.cpp
- * @author Jinsung Kim (kimjsung@cau.ac.kr)
- * @brief 
- * @version 0.1
- * @date 2026-02-09
- * 
- * @copyright Copyright (c) 2026
- * 
- */
-#pragma once
-#include "tcont.hpp"
-#include <cmath>
-#include <string>
-#include <cstring>
-#include <iostream>
+#include "tccg_verify.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <stdexcept>
+#include <vector>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
+#include "tccg_utils.hpp"
 
-/**
- *  TCCG Benchmark TCs
- */
-std::vector<TconT::TCEquation> list_tccg_bench = 
-{
-  // 00: C[a,b,c] -= A[c,d] * B[d,a,b] (dummy)
-  { 
-    {'a','b','c'}, {'c','d'}, {'d','a','b'}, '-', 
-    { {'a',312}, {'b',296}, {'c',296}, {'d',312} } 
-  },
-  //////////////////////////////////////////////////////////////////////////////
-  // 01: C[a,b,c] -= A[b,d,a] * B[d,c]
-  { 
-    {'a','b','c'}, {'b','d','a'}, {'d','c'}, '-', 
-    { {'a',312}, {'b',312}, {'c',24}, {'d',312} } 
-  },
-  // 02: C[a,b,c] -= A[d,c,a] * B[b,d]
-  { 
-    {'a','b','c'}, {'d','c','a'}, {'b','d'}, '-', 
-    { {'a',312}, {'b',24}, {'c',296}, {'d',312} } 
-  },
-  // 03: C[a,b,c,d] -= A[d,b,e,a] * B[e,c]
-  { 
-    {'a','b','c','d'}, {'d','b','e','a'}, {'e','c'}, '-', 
-    { {'a',72}, {'b',72}, {'c',24}, {'d',72}, {'e',72} } 
-  },
-  // 04: C[a,b,c,d] -= A[d,e,c,a] * B[b,e]
-  { 
-    {'a','b','c','d'}, {'d','e','c','a'}, {'b','e'}, '-', 
-    { {'a',72}, {'b',24}, {'c',72}, {'d',72}, {'e',72} } 
-  },
-  // 05: C[a,b,c,d] -= A[e,b,a,d] * B[c,e]
-  { 
-    {'a','b','c','d'}, {'e','b','a','d'}, {'c','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',24}, {'d',72}, {'e',72} } 
-  },
-  // 06: C[a,b,c,d,e] -= A[e,f,b,a,d] * B[c,f]
-  { 
-    {'a','b','c','d','e'}, {'e','f','b','a','d'}, {'c','f'}, '-', 
-    { {'a',48}, {'b',32}, {'c',24}, {'d',32}, {'e',48}, {'f',32} } 
-  },
-  // 07: C[a,b,c,d,e] -= A[e,c,b,f,a] * B[f,d]
-  { 
-    {'a','b','c','d','e'}, {'e','c','b','f','a'}, {'f','d'}, '-', 
-    { {'a',48}, {'b',32}, {'c',32}, {'d',24}, {'e',48}, {'f',48} } 
-  },
-  // 08: C[a,b,c,d,e] -= A[e,f,c,a,d] * B[b,f]
-  { 
-    {'a','b','c','d','e'}, {'e','f','c','a','d'}, {'b','f'}, '-', 
-    { {'a',48}, {'b',24}, {'c',32}, {'d',32}, {'e',48}, {'f',32} } 
-  },
-  //////////////////////////////////////////////////////////////////////////////
-  // 09: C[a,b,c,d] -= A[e,a] * B[e,b,c,d]
-  { 
-    {'a','b','c','d'}, {'e','a'}, {'e','b','c','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72} } 
-  },
-  // 10: C[a,b,c,d] -= A[e,b] * B[a,e,c,d]
-  { 
-    {'a','b','c','d'}, {'e','b'}, {'a','e','c','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72} } 
-  },
-  // 11: C[a,b,c,d] -= A[e,c] * B[a,b,e,d]
-  { 
-    {'a','b','c','d'}, {'e','c'}, {'a','b','e','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72} } 
-  },
-  //////////////////////////////////////////////////////////////////////////////
-  // 12: C[a,b] -= A[a,c] * B[c,b]
-  { 
-    {'a','b'}, {'a','c'}, {'c','b'}, '-', 
-    { {'a',5136}, {'b',5120}, {'c',5136} } 
-  },
-  // 13: C[a,b] -= A[a,c,d] * B[d,b,c]
-  { 
-    {'a','b'}, {'a','c','d'}, {'d','b','c'}, '-', 
-    { {'a',312}, {'b',296}, {'c',296}, {'d',312} } 
-  },
-  // 14: C[a,b] -= A[c,a,d] * B[d,c,b]
-  { 
-    {'a','b'}, {'c','a','d'}, {'d','c','b'}, '-', 
-    { {'a',312}, {'b',296}, {'c',312}, {'d',312} } 
-  },
-  // 15: C[a,b,c] -= A[a,c,d] * B[d,b]
-  { 
-    {'a','b','c'}, {'a','c','d'}, {'d','b'}, '-', 
-    { {'a',312}, {'b',296}, {'c',296}, {'d',312} } 
-  },
-  // 16: C[a,b,c] -= A[a,d] * B[b,d,c]
-  { 
-    {'a','b','c'}, {'a','d'}, {'b','d','c'}, '-', 
-    { {'a',312}, {'b',312}, {'c',296}, {'d',296} } 
-  },
-  // 17: C[a,b,c] -= A[a,d,c] * B[b,d]
-  { 
-    {'a','b','c'}, {'a','d','c'}, {'b','d'}, '-', 
-    { {'a',312}, {'b',312}, {'c',296}, {'d',296} } 
-  },
-  // 18: C[a,b,c] -= A[a,d,c] * B[d,b]
-  { 
-    {'a','b','c'}, {'a','d','c'}, {'d','b'}, '-', 
-    { {'a',312}, {'b',296}, {'c',296}, {'d',312} } 
-  },
-  // 19: C[a,b,c] -= A[a,d,e,c] * B[e,b,d]
-  { 
-    {'a','b','c'}, {'a','d','e','c'}, {'e','b','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72} } 
-  },
-  //////////////////////////////////////////////////////////////////////////////
-  // 20: C[a,b,c,d] -= A[a,e,b,f] * B[d,f,c,e]
-  { 
-    {'a','b','c','d'}, {'a','e','b','f'}, {'d','f','c','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 21: C[a,b,c,d] -= A[a,e,b,f] * B[f,d,e,c]
-  { 
-    {'a','b','c','d'}, {'a','e','b','f'}, {'f','d','e','c'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 22: C[a,b,c,d] -= A[a,e,c,f] * B[b,f,d,e]
-  { 
-    {'a','b','c','d'}, {'a','e','c','f'}, {'b','f','d','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 23: C[a,b,c,d] -= A[a,e,c,f] * B[f,b,e,d]
-  { 
-    {'a','b','c','d'}, {'a','e','c','f'}, {'f','b','e','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 24: C[a,b,c,d] -= A[a,e,d,f] * B[b,f,c,e]
-  { 
-    {'a','b','c','d'}, {'a','e','d','f'}, {'b','f','c','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 25: C[a,b,c,d] -= A[a,e,d,f] * B[f,b,e,c]
-  { 
-    {'a','b','c','d'}, {'a','e','d','f'}, {'f','b','e','c'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 26: C[a,b,c,d] -= A[a,e,f,b] * B[f,d,c,e]
-  { 
-    {'a','b','c','d'}, {'a','e','f','b'}, {'f','d','c','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 27: C[a,b,c,d] -= A[a,e,f,c] * B[f,b,e,d]
-  { 
-    {'a','b','c','d'}, {'a','e','f','c'}, {'f','b','e','d'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 28: C[a,b,c,d] -= A[e,a,f,b] * B[f,d,e,c]
-  { 
-    {'a','b','c','d'}, {'e','a','f','b'}, {'f','d','e','c'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 29: C[a,b,c,d] -= A[e,a,f,c] * B[b,f,d,e]
-  { 
-    {'a','b','c','d'}, {'e','a','f','c'}, {'b','f','d','e'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  // 30: C[a,b,c,d] -= A[e,a,f,d] * B[f,b,e,c]
-  { 
-    {'a','b','c','d'}, {'e','a','f','d'}, {'f','b','e','c'}, '-', 
-    { {'a',72}, {'b',72}, {'c',72}, {'d',72}, {'e',72}, {'f',72} } 
-  },
-  //////////////////////////////////////////////////////////////////////////////
-  // 31: C[a,b,c,d,e,f] -= A[d,e,g,a] * B[g,f,b,c]
-  { 
-    {'a','b','c','d','e','f'}, {'d','e','g','a'}, {'g','f','b','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 32: C[a,b,c,d,e,f] -= A[d,e,g,b] * B[g,f,a,c]
-  { 
-    {'a','b','c','d','e','f'}, {'d','e','g','b'}, {'g','f','a','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 33: C[a,b,c,d,e,f] -= A[d,e,g,c] * B[g,f,a,b]
-  { 
-    {'a','b','c','d','e','f'}, {'d','e','g','c'}, {'g','f','a','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 34: C[a,b,c,d,e,f] -= A[d,f,g,a] * B[g,e,b,c]
-  { 
-    {'a','b','c','d','e','f'}, {'d','f','g','a'}, {'g','e','b','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 35: C[a,b,c,d,e,f] -= A[d,f,g,b] * B[g,e,a,c]
-  { 
-    {'a','b','c','d','e','f'}, {'d','f','g','b'}, {'g','e','a','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 36: C[a,b,c,d,e,f] -= A[d,f,g,c] * B[g,e,a,b]
-  { 
-    {'a','b','c','d','e','f'}, {'d','f','g','c'}, {'g','e','a','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 37: C[a,b,c,d,e,f] -= A[e,f,g,a] * B[g,d,b,c]
-  { 
-    {'a','b','c','d','e','f'}, {'e','f','g','a'}, {'g','d','b','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 38: C[a,b,c,d,e,f] -= A[e,f,g,b] * B[g,d,a,c]
-  { 
-    {'a','b','c','d','e','f'}, {'e','f','g','b'}, {'g','d','a','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 39: C[a,b,c,d,e,f] -= A[e,f,g,c] * B[g,d,a,b]
-  { 
-    {'a','b','c','d','e','f'}, {'e','f','g','c'}, {'g','d','a','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 40: C[a,b,c,d,e,f] -= A[g,d,a,b] * B[e,f,g,c]
-  { 
-    {'a','b','c','d','e','f'}, {'g','d','a','b'}, {'e','f','g','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 41: C[a,b,c,d,e,f] -= A[g,d,a,c] * B[e,f,g,b]
-  { 
-    {'a','b','c','d','e','f'}, {'g','d','a','c'}, {'e','f','g','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 42: C[a,b,c,d,e,f] -= A[g,d,b,c] * B[e,f,g,a]
-  { 
-    {'a','b','c','d','e','f'}, {'g','d','b','c'}, {'e','f','g','a'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',16}, {'e',24}, {'f',16}, {'g',24} } 
-  },
-  // 43: C[a,b,c,d,e,f] -= A[g,e,a,b] * B[d,f,g,c]
-  { 
-    {'a','b','c','d','e','f'}, {'g','e','a','b'}, {'d','f','g','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 44: C[a,b,c,d,e,f] -= A[g,e,a,c] * B[d,f,g,b]
-  { 
-    {'a','b','c','d','e','f'}, {'g','e','a','c'}, {'d','f','g','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 45: C[a,b,c,d,e,f] -= A[g,e,b,c] * B[d,f,g,a]
-  { 
-    {'a','b','c','d','e','f'}, {'g','e','b','c'}, {'d','f','g','a'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 46: C[a,b,c,d,e,f] -= A[g,f,a,b] * B[d,e,g,c]
-  { 
-    {'a','b','c','d','e','f'}, {'g','f','a','b'}, {'d','e','g','c'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 47: C[a,b,c,d,e,f] -= A[g,f,a,c] * B[d,e,g,b]
-  { 
-    {'a','b','c','d','e','f'}, {'g','f','a','c'}, {'d','e','g','b'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-  // 48: C[a,b,c,d,e,f] -= A[g,f,b,c] * B[d,e,g,a]
-  { 
-    {'a','b','c','d','e','f'}, {'g','f','b','c'}, {'d','e','g','a'}, '-', 
-    { {'a',24}, {'b',16}, {'c',16}, {'d',24}, {'e',16}, {'f',16}, {'g',24} } 
-  },
-};
-
-static void print_indices(const std::vector<char>& modes) 
-{
-  for (auto it = modes.begin(); it != modes.end(); ++it) {
-    std::cout << *it;
-    if (std::next(it) != modes.end()) {
-      std::cout << ",";
-    }
-  }
-}
-
-// 
-void print_equation(const TconT::TCEquation& eq)
-{
-  // Print equation
-    std::cout << "[TTGT-cuTT] Equation: C[";
-    print_indices(eq.modeC);
-    std::cout << "] ";
-
-    if (eq.op == '-')
-        std::cout << "-= ";
-    else if (eq.op == '+')
-        std::cout << "+= ";
-    else
-        std::cout << eq.op << "= ";
-
-    std::cout << "A[";
-    print_indices(eq.modeA);
-    std::cout << "] * B[";
-    print_indices(eq.modeB);
-    std::cout << "]\n";
-
-    // Print extents (sorted for readability)
-    std::vector<char> keys;
-    for (const auto& kv : eq.extent)
-        keys.push_back(kv.first);
-
-    std::sort(keys.begin(), keys.end());
-
-    std::cout << "[TTGT-cuTT] Extents: ";
-    for (size_t i = 0; i < keys.size(); ++i)
-    {
-        char idx = keys[i];
-        std::cout << idx << "=" << eq.extent.at(idx);
-        if (i != keys.size() - 1)
-            std::cout << ", ";
-    }
-    std::cout << "\n";
-}
-
-// 
-int64_t compute_tensor_size(const std::vector<char>& modes, const std::unordered_map<char, int64_t>& extent)
-{
-    int64_t size = 1;
-    for (char mode : modes) {
-        auto it = extent.find(mode);
-        if (it == extent.end()) {
-            throw std::runtime_error(std::string("Extent for index '") + mode + "' not found.");
-        }
-        size *= it->second;
-    }
-    return size;
-}
-
-// Helper to fetch extents from TconT::TCEquation
-static inline int extent_of(const TconT::TCEquation& eq, char idx) 
-{
-    auto it = eq.extent.find(idx);
-    if (it == eq.extent.end()) {
-        throw std::runtime_error(std::string("Extent for index '") + idx + "' not found.");
-    }
-    // Your extents are small enough to fit into int for loop bounds
-    return static_cast<int>(it->second);
-}
-
-//
-// "3,a,b,c,-=,1,d,2,c,d,3,d,a,b",             // 00
+namespace {
+thread_local VerificationTolerance g_verification_tolerance{1e-11, 1e-9};
+void check_correctness_comparison(int total_size, double* output_host, double* output_device);
 void check_correctness_tccg_00(double* output, double* input_left, double* input_right, 
                             double* dev_output, const TconT::TCEquation& eq)
 {
@@ -1977,8 +1637,8 @@ void check_correctness_comparison(int total_size, double* output_host, double* o
     // Tolerances:
     //  - abs_tol handles values near 0
     //  - rel_tol scales with magnitude for larger values
-    const double abs_tol = 1e-11;
-    const double rel_tol = 1e-9;
+    const double abs_tol = g_verification_tolerance.abs_tol;
+    const double rel_tol = g_verification_tolerance.rel_tol;
     
     int diff = 0;
     int same = 0;
@@ -2022,4 +1682,126 @@ void check_correctness_comparison(int total_size, double* output_host, double* o
     printf ("Differences: %d / %d (Same: %d, Non-finite: %d)\n", 
         diff, total_size, same, non_finite);
     printf ("=======================================================================\n");
+}
+}  // namespace
+
+VerificationTolerance verification_tolerance_for(TconT::ScalarType scalar_type)
+{
+    switch (scalar_type) {
+        case TconT::ScalarType::Float32:
+            // TF32 typically keeps FP32 range with a 10-bit mantissa, so we allow
+            // noticeably looser relative error than true FP32 GEMM validation.
+            return VerificationTolerance{2e-3, 5e-2};
+        case TconT::ScalarType::Float64:
+            return VerificationTolerance{1e-11, 1e-9};
+    }
+    return VerificationTolerance{1e-11, 1e-9};
+}
+
+namespace {
+void verify_tccg_case_double(
+    size_t case_index,
+    const TconT::TCEquation& eq,
+    double* output_reference,
+    double* output_device,
+    double* input_left,
+    double* input_right)
+{
+    switch (case_index) {
+        case 0: check_correctness_tccg_00(output_reference, input_left, input_right, output_device, eq); break;
+        case 1: check_correctness_tccg_01(output_reference, input_left, input_right, output_device, eq); break;
+        case 2: check_correctness_tccg_02(output_reference, input_left, input_right, output_device, eq); break;
+        case 3: check_correctness_tccg_03(output_reference, input_left, input_right, output_device, eq); break;
+        case 4: check_correctness_tccg_04(output_reference, input_left, input_right, output_device, eq); break;
+        case 5: check_correctness_tccg_05(output_reference, input_left, input_right, output_device, eq); break;
+        case 6: check_correctness_tccg_06(output_reference, input_left, input_right, output_device, eq); break;
+        case 7: check_correctness_tccg_07(output_reference, input_left, input_right, output_device, eq); break;
+        case 8: check_correctness_tccg_08(output_reference, input_left, input_right, output_device, eq); break;
+        case 9: check_correctness_tccg_09(output_reference, input_left, input_right, output_device, eq); break;
+        case 10: check_correctness_tccg_10(output_reference, input_left, input_right, output_device, eq); break;
+        case 11: check_correctness_tccg_11(output_reference, input_left, input_right, output_device, eq); break;
+        case 12: check_correctness_tccg_12(output_reference, input_left, input_right, output_device, eq); break;
+        case 13: check_correctness_tccg_13(output_reference, input_left, input_right, output_device, eq); break;
+        case 14: check_correctness_tccg_14(output_reference, input_left, input_right, output_device, eq); break;
+        case 15: check_correctness_tccg_15(output_reference, input_left, input_right, output_device, eq); break;
+        case 16: check_correctness_tccg_16(output_reference, input_left, input_right, output_device, eq); break;
+        case 17: check_correctness_tccg_17(output_reference, input_left, input_right, output_device, eq); break;
+        case 18: check_correctness_tccg_18(output_reference, input_left, input_right, output_device, eq); break;
+        case 19: check_correctness_tccg_19(output_reference, input_left, input_right, output_device, eq); break;
+        case 20: check_correctness_tccg_20(output_reference, input_left, input_right, output_device, eq); break;
+        case 21: check_correctness_tccg_21(output_reference, input_left, input_right, output_device, eq); break;
+        case 22: check_correctness_tccg_22(output_reference, input_left, input_right, output_device, eq); break;
+        case 23: check_correctness_tccg_23(output_reference, input_left, input_right, output_device, eq); break;
+        case 24: check_correctness_tccg_24(output_reference, input_left, input_right, output_device, eq); break;
+        case 25: check_correctness_tccg_25(output_reference, input_left, input_right, output_device, eq); break;
+        case 26: check_correctness_tccg_26(output_reference, input_left, input_right, output_device, eq); break;
+        case 27: check_correctness_tccg_27(output_reference, input_left, input_right, output_device, eq); break;
+        case 28: check_correctness_tccg_28(output_reference, input_left, input_right, output_device, eq); break;
+        case 29: check_correctness_tccg_29(output_reference, input_left, input_right, output_device, eq); break;
+        case 30: check_correctness_tccg_30(output_reference, input_left, input_right, output_device, eq); break;
+        case 31: check_correctness_tccg_31(output_reference, input_left, input_right, output_device, eq); break;
+        case 32: check_correctness_tccg_32(output_reference, input_left, input_right, output_device, eq); break;
+        case 33: check_correctness_tccg_33(output_reference, input_left, input_right, output_device, eq); break;
+        case 34: check_correctness_tccg_34(output_reference, input_left, input_right, output_device, eq); break;
+        case 35: check_correctness_tccg_35(output_reference, input_left, input_right, output_device, eq); break;
+        case 36: check_correctness_tccg_36(output_reference, input_left, input_right, output_device, eq); break;
+        case 37: check_correctness_tccg_37(output_reference, input_left, input_right, output_device, eq); break;
+        case 38: check_correctness_tccg_38(output_reference, input_left, input_right, output_device, eq); break;
+        case 39: check_correctness_tccg_39(output_reference, input_left, input_right, output_device, eq); break;
+        case 40: check_correctness_tccg_40(output_reference, input_left, input_right, output_device, eq); break;
+        case 41: check_correctness_tccg_41(output_reference, input_left, input_right, output_device, eq); break;
+        case 42: check_correctness_tccg_42(output_reference, input_left, input_right, output_device, eq); break;
+        case 43: check_correctness_tccg_43(output_reference, input_left, input_right, output_device, eq); break;
+        case 44: check_correctness_tccg_44(output_reference, input_left, input_right, output_device, eq); break;
+        case 45: check_correctness_tccg_45(output_reference, input_left, input_right, output_device, eq); break;
+        case 46: check_correctness_tccg_46(output_reference, input_left, input_right, output_device, eq); break;
+        case 47: check_correctness_tccg_47(output_reference, input_left, input_right, output_device, eq); break;
+        case 48: check_correctness_tccg_48(output_reference, input_left, input_right, output_device, eq); break;
+        default:
+            throw std::out_of_range("Unsupported TCCG verification case index");
+    }
+}
+
+template <typename SrcType>
+std::vector<double> convert_to_double(const SrcType* src, size_t count)
+{
+    std::vector<double> out(count);
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = static_cast<double>(src[i]);
+    }
+    return out;
+}
+}  // namespace
+
+void verify_tccg_case(
+    size_t case_index,
+    const TconT::TCEquation& eq,
+    const void* output_device,
+    const void* input_left,
+    const void* input_right)
+{
+    const auto output_size = static_cast<size_t>(compute_tensor_size(eq.modeC, eq.extent));
+    const auto left_size = static_cast<size_t>(compute_tensor_size(eq.modeA, eq.extent));
+    const auto right_size = static_cast<size_t>(compute_tensor_size(eq.modeB, eq.extent));
+
+    g_verification_tolerance = verification_tolerance_for(eq.scalar_type);
+
+    switch (eq.scalar_type) {
+        case TconT::ScalarType::Float64: {
+            std::vector<double> reference_output(output_size, 0.0);
+            auto output = convert_to_double(static_cast<const double*>(output_device), output_size);
+            auto left = convert_to_double(static_cast<const double*>(input_left), left_size);
+            auto right = convert_to_double(static_cast<const double*>(input_right), right_size);
+            verify_tccg_case_double(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
+            break;
+        }
+        case TconT::ScalarType::Float32: {
+            std::vector<double> reference_output(output_size, 0.0);
+            auto output = convert_to_double(static_cast<const float*>(output_device), output_size);
+            auto left = convert_to_double(static_cast<const float*>(input_left), left_size);
+            auto right = convert_to_double(static_cast<const float*>(input_right), right_size);
+            verify_tccg_case_double(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
+            break;
+        }
+    }
 }

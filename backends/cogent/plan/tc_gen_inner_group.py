@@ -1,7 +1,5 @@
-import os
 import re, copy
 from collections import OrderedDict
-import sys
 
 from base.proc_configuration import get_configurations
 from base.proc_configuration import transform_config_inner_group
@@ -34,9 +32,6 @@ def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, varian
     info_each_inner_group = transform_config_inner_group(l_configurations_outer_group)
 
     #
-    non_split_all_index = equation_info[0][2]
-
-    #
     # print(f"[Code Generator][tc_gen_inner_group] # of Outer-Groups : {len(equation_info)}")
     
     #
@@ -52,24 +47,6 @@ def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, varian
         l_each_group_mapping_2D   = list()
         l_each_group_mapping_reg  = list()
         l_t3_slices_size          = list()
-        l_t3_interface_info       = list()
-        l_t3_temp_inputs          = list()
-
-        #
-        #   To Create "Interface"
-        #
-        idx_count           = 0
-        str_common_output   = ""
-        for each_tc in each_outer_group[1] :
-            l_t3_temp_inputs.append([each_tc[4], each_tc[6]])
-            if idx_count == 0 :
-                str_common_output = each_tc[0]
-            idx_count = idx_count + 1   
-
-        #
-        #   l_interface_info: [0] All Index, [1] Output, [2] Inputs, [3] Conditions, [4] Options
-        #
-        l_t3_interface_info.append([non_split_all_index, str_common_output, l_t3_temp_inputs])
 
         #
         #   (Temporary)
@@ -149,7 +126,7 @@ def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, varian
         print("============================================================================")
 
     #
-    return l_inner_groups, l_t3_interface_info, str_binary_input
+    return l_inner_groups, str_binary_input
 
 #
 def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print) :
@@ -249,9 +226,8 @@ def make_kernel_name(l_kernal_binary):
     tile_sizes  = l_kernal_binary[5]
     d2_flag     = l_kernal_binary[6]
 
-    op_map  = {'+=': 'iadd', '-=': 'isub'}
+    op_map  = {'+': 'iadd', '-': 'isub'}
     op_str  = op_map.get(op, op)
-
     t2_str    = 't2.' + '_'.join(t2_indices)           # t2.b.d.a
     v2_str    = 'v2.' + '_'.join(v2_indices)           # v2.d.c
     frag_str  = 'frag.' + '_'.join(frag_mapped)        # frag.a.c1

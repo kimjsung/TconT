@@ -11,19 +11,20 @@
 #include <map>
 #include <regex>
 
-void pre_Initializing_Input_Tensors(double* A, int size_A, double* B, int size_B)
+template <typename T>
+void pre_Initializing_Input_Tensors(T* A, int size_A, T* B, int size_B)
 {
     srand(time(NULL));
 
 	int i, j;
 	for (i = 0; i < size_A; i++)
 	{
-		A[i] = ((double)rand() / RAND_MAX);
+		A[i] = static_cast<T>(static_cast<double>(rand()) / RAND_MAX);
 	}
 
 	for (j = 0; j < size_B; j++)
 	{
-		B[j] = ((double)rand() / RAND_MAX);
+		B[j] = static_cast<T>(static_cast<double>(rand()) / RAND_MAX);
 	}
 }
 
