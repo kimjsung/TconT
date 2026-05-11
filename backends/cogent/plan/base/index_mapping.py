@@ -1,6 +1,5 @@
 import math
 import itertools
-import sys
 from typing import NamedTuple
 
 
@@ -49,7 +48,7 @@ def get_external_indices(tensor_indices: list[str], internal_indices: list[str])
     return external
 
 
-def _decide_no_a_placement(no_a_external, loop_a_side, t3_indices, size_map, no_a_indices_fvi, idx_flag):
+def _decide_no_a_placement(no_a_external, loop_a_side, t3_indices, size_map, no_a_indices_fvi, idx_flag, out_fvi):
     is_split = (len(no_a_external) == 2 and
                 no_a_external[0].rstrip("12") == no_a_external[1].rstrip("12"))
     
@@ -65,7 +64,7 @@ def _decide_no_a_placement(no_a_external, loop_a_side, t3_indices, size_map, no_
             if no_a_indices_fvi not in [frag, loop_idx] :
                 continue
 
-        loop_order = [i for i in [loop_idx, loop_a_side, frag, "a"] if i]
+        loop_order = [i for i in [loop_idx, loop_a_side, frag, out_fvi] if i]
         s = compute_loop_score(loop_order, t3_indices, size_map)
         if s > best_score:
             best_score = s
@@ -81,18 +80,19 @@ def _assign_fragment_and_loop(
     no_a_indices:     list[str],
     t3_indices:       list[str],
     size_map:         dict,
+    out_fvi:          str,
 ) -> tuple:
     a_side_external = get_external_indices(a_side_indices, internal_indices)
 
     # a가 유일한 external: a1=fragment, a2=loop
-    if a_side_external == ["a1", "a2"]:
-        fragment_a_side = "a1"
-        loop_a_side     = "a2"
+    if a_side_external == [f"{out_fvi}1", f"{out_fvi}2"]:
+        fragment_a_side = f"{out_fvi}1"
+        loop_a_side     = f"{out_fvi}2"
         block_a_side    = []
     else:
-        fragment_a_side   = "a"
+        fragment_a_side   = out_fvi
         a_loop_candidates = [i for i in a_side_external
-                             if i != "a" and i.rstrip("12") != "a"]
+                             if i != out_fvi and i.rstrip("12") != out_fvi]
         is_a_split = (len(a_side_external) == 2 and
                       a_side_external[0].rstrip("12") == a_side_external[1].rstrip("12"))
 
@@ -117,7 +117,7 @@ def _assign_fragment_and_loop(
         idx_flag = 0
     # a가 없는 쪽 처리
     no_a_ext = get_external_indices(no_a_indices, internal_indices)
-    frag_no_a, loop_no_a, block_no_a = _decide_no_a_placement(no_a_ext, loop_a_side, t3_indices, size_map, no_a_indices[0], idx_flag)
+    frag_no_a, loop_no_a, block_no_a = _decide_no_a_placement(no_a_ext, loop_a_side, t3_indices, size_map, no_a_indices[0], idx_flag, out_fvi)
 
     return fragment_a_side, loop_a_side, block_a_side, frag_no_a, loop_no_a, block_no_a
 
@@ -128,9 +128,10 @@ def _assign_single_internal(
     v2_indices:       list[str],
     t3_indices:       list[str],
     size_map:         dict,
+    out_fvi:          str,
 ) -> FragmentAssignmentResult:
-    a_side, no_a = (t2_indices, v2_indices) if "a" in t2_indices else (v2_indices, t2_indices)
-    frag_a, loop_a, block_a, frag_no_a, loop_no_a, block_no_a = _assign_fragment_and_loop(internal_indices, a_side, no_a, t3_indices, size_map)
+    a_side, no_a = (t2_indices, v2_indices) if out_fvi in t2_indices else (v2_indices, t2_indices)
+    frag_a, loop_a, block_a, frag_no_a, loop_no_a, block_no_a = _assign_fragment_and_loop(internal_indices, a_side, no_a, t3_indices, size_map, out_fvi)
     loop_order = [i for i in [loop_no_a, loop_a, frag_no_a, frag_a] if i]
 
     return FragmentAssignmentResult(
@@ -144,6 +145,7 @@ def _assign_double_internal(
     v2_indices:       list[str],
     t3_indices:       list[str],
     size_map:         dict,
+    out_fvi:          str,
 ) -> FragmentAssignmentResult:
     first_in_internal = [i for i in internal_indices if i in {t2_indices[0], v2_indices[0]}]
 
@@ -152,7 +154,7 @@ def _assign_double_internal(
               v2_indices if v2_indices[0] == tile_idx else \
               (t2_indices if (tensor_stride(t2_indices, tile_idx, size_map) or float("inf")) <=
                              (tensor_stride(v2_indices, tile_idx, size_map) or float("inf")) else v2_indices)
-        ext = [i for i in big if i not in internal_indices and i != "a"]
+        ext = [i for i in big if i not in internal_indices and i != out_fvi]
         s   = sum(t3_stride_val(i, t3_indices, size_map) for i in ext
                   if t3_stride_val(i, t3_indices, size_map))
         return 1.0 / s if s > 0 else float("inf")
@@ -190,7 +192,7 @@ def _assign_double_internal(
         if size_big_ext < size_small_ext :
             tile_idx, step_idx = step_idx, tile_idx
         
-    a_side, no_a = (t2_indices, v2_indices) if "a" in t2_indices else (v2_indices, t2_indices)
+    a_side, no_a = (t2_indices, v2_indices) if out_fvi in t2_indices else (v2_indices, t2_indices)
     frag_a, loop_a, block_a, frag_no_a, loop_no_a, block_no_a = _assign_fragment_and_loop(internal_indices, a_side, no_a, t3_indices, size_map)
     loop_order = [i for i in [loop_no_a, loop_a, frag_no_a, frag_a] if i]
 
@@ -207,16 +209,18 @@ def assign_fragment(
     size_map:         dict,
 ) -> FragmentAssignmentResult:
     assert len(internal_indices) in (1, 2)
+    out_fvi = t3_indices[0]
 
     if len(internal_indices) == 1 :
-        result = _assign_single_internal(internal_indices, t2_indices, v2_indices, t3_indices, size_map)
+        result = _assign_single_internal(internal_indices, t2_indices, v2_indices, t3_indices, size_map, out_fvi)
     else :
-        result = _assign_double_internal(internal_indices, t2_indices, v2_indices, t3_indices, size_map)
+        result = _assign_double_internal(internal_indices, t2_indices, v2_indices, t3_indices, size_map, out_fvi)
 
     return result
 
 
 def assign_mapping(l_tensors, index_to_extent):
+    out_fvi = l_tensors[0][0]
     r = assign_fragment(l_tensors[0], l_tensors[1], l_tensors[2], l_tensors[3], index_to_extent)
 
     if r.tile_index :
@@ -236,7 +240,7 @@ def assign_mapping(l_tensors, index_to_extent):
     # print(f"frag_n : {frag_n}, frag_m : {frag_m}, reg_n : {reg_n}, reg_m : {reg_m}", file=sys.stderr)
     # index_mapping = [internal, frag_n, frag_m, reg_n, reg_m]
     
-    if "a" in l_tensors[2] :
+    if out_fvi in l_tensors[2] :
         len_m = len(l_tensors[3]) - len(l_tensors[1])
         if len_m > 1 :
             for i in r.block_no_a :

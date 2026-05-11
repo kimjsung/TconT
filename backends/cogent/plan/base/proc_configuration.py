@@ -1,7 +1,6 @@
 import os
 import sys
-import time
-import tc_helper   as tc_helper
+import tc_helper              as tc_helper
 import base.alg_configuration as tc_alg_config
 import base.cost_model        as tc_cost_model
 import base.pruning           as tc_pruning
@@ -201,7 +200,7 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
             #   Output: List of Configurations 
             #
             index_mapping = tc_mapping.assign_mapping(tensors, index_to_extent)
-            config_struct, swap_flag, m_frag_rank, m_reg_rank = tc_pruning.index_based_config_selection(tensors, index_to_extent, index_mapping)
+            config_struct, swap_flag, m_frag_rank, m_reg_rank = tc_pruning.index_based_config_selection(tensors, index_to_extent, index_mapping, data_type)
             l_config = tc_alg_config.build_configurations(each_tc, l_info_split_idx, l_representative_problem_size, index_mapping, swap_flag, opt_print, data_type)
             # print(f"index_mapping : {index_mapping}", file=sys.stderr)
             # print(f"config_struct : {config_struct}", file=sys.stderr)
@@ -254,7 +253,7 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                             print("============================================================================", file=f)
 
                 if len(pruned_config) < 1 :
-                    tc_cost_model.cost_model_total(l_config)
+                    tc_cost_model.cost_model(l_config, data_type)
                     l_config.sort(key = lambda x: x.cost_total_v2)
                     l_configurations_outer_group.append(l_config[0])
                     if configuration_info_flag :
@@ -263,33 +262,60 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                             f.write(f"eq : {equation}, variant : {variant_num}, # of configs before pruning : {len(l_config)}, # of configs after pruning : {len(pruned_config)}\n")
                     sys.exit()
                 else :
-                    tc_cost_model.cost_model_total(pruned_config)
+                    tc_cost_model.cost_model(pruned_config, data_type)
                     pruned_config.sort(key = lambda x: x.cost_total_v2)
                     l_configurations_outer_group.append(pruned_config[0])
-
-                    frag_n = pruned_config[0].list_FRAG_X[0]
-                    reg_n = pruned_config[0].list_REG_X[0]
-                    frag_n_tile = pruned_config[0].size_FRAG_X
-                    reg_n_tile = pruned_config[0].size_REG_X
-                    is_fvi_n = 1
-
-                    frag_m = pruned_config[0].list_FRAG_Y[0]
-                    reg_m = pruned_config[0].list_REG_Y[0]
-                    frag_m_tile = pruned_config[0].size_FRAG_Y
-                    reg_m_tile = pruned_config[0].size_REG_Y
-                    is_fvi_m = 0
                     
-                    internal = pruned_config[0].list_FRAG_K[0]
-                    internal_size = pruned_config[0].size_FRAG_K
+                    # frag_n = pruned_config[0].list_FRAG_X[0]
+                    # reg_n = pruned_config[0].list_REG_X[0]
+                    # frag_n_tile = pruned_config[0].size_FRAG_X
+                    # reg_n_tile = pruned_config[0].size_REG_X
+                    # is_fvi_n = 1
 
-                    warp_shape = pruned_config[0].warp_shape
+                    # frag_m = pruned_config[0].list_FRAG_Y[0]
+                    # reg_m = pruned_config[0].list_REG_Y[0]
+                    # frag_m_tile = pruned_config[0].size_FRAG_Y
+                    # reg_m_tile = pruned_config[0].size_REG_Y
+                    # is_fvi_m = 0
+                    
+                    # internal = pruned_config[0].list_FRAG_K[0]
+                    # internal_size = pruned_config[0].size_FRAG_K
 
-                    smem_size = pruned_config[0].smem_per_block
+                    # warp_shape = pruned_config[0].warp_shape
 
-                    if configuration_info_flag :
-                        os.makedirs("model/config_info3", exist_ok=True)
-                        with open(f"model/config_info3/eq_{equation}.txt", "a") as f :
-                            f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size}\n")
+                    # smem_size = pruned_config[0].smem_per_block
+
+                    # if configuration_info_flag :
+                    #     os.makedirs("model/config_info3", exist_ok=True)
+                    #     with open(f"model/config_info3/eq_{equation}.txt", "a") as f :
+                    #         f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size}\n")
+
+                    for i in pruned_config :
+                        frag_n = i.list_FRAG_X[0]
+                        reg_n = i.list_REG_X[0]
+                        frag_n_tile = i.size_FRAG_X
+                        reg_n_tile = i.size_REG_X
+                        is_fvi_n = 1
+
+                        frag_m = i.list_FRAG_Y[0]
+                        reg_m = i.list_REG_Y[0]
+                        frag_m_tile = i.size_FRAG_Y
+                        reg_m_tile = i.size_REG_Y
+                        is_fvi_m = 0
+                        
+                        internal = i.list_FRAG_K[0]
+                        internal_size = i.size_FRAG_K
+
+                        warp_shape = i.warp_shape
+
+                        smem_size = i.smem_per_block
+
+                        mem_cost = i.cost_total_v2
+                        stage = i.stage
+                        os.makedirs("tmp", exist_ok=True)
+                        with open(f"tmp/eq_{equation}.txt", "a") as f :
+                            f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size},{mem_cost},{stage}\n")
+
 
             else :
                 ###############################################################################################################

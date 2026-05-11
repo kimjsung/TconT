@@ -77,8 +77,8 @@ if __name__ == "__main__" :
     variant_num = 0
 
     opt_print = 0
-    l_inner_groups, l_interface_info, str_binary_input = config.tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, variant_num, opt_print, dtype)
-    l_temp_inner_output, l_kernal_binary = config.tc_gen_processing_inner_group(l_inner_groups, equation_info, opt_print)
+    l_inner_groups, str_binary_input = config.tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, variant_num, opt_print, dtype)
+    l_temp_inner_output, l_kernal_binary = config.tc_gen_processing_inner_group(l_inner_groups, equation_info, opt_print, dtype)
 
     kernel_bin = config.make_kernel_name(l_kernal_binary)
     launch_config = config.make_launch_config(l_kernal_binary, kernel_bin, l_temp_inner_output[0][4], l_temp_inner_output[0][5], l_temp_inner_output[0][8], index_to_extent)
@@ -90,7 +90,7 @@ if __name__ == "__main__" :
     if not os.path.exists(bin_path) :
         print(f"Kernel does not exist at {bin_path}.\nGenerating kernel...", file=sys.stderr)
         os.makedirs(backend_path + "/code", exist_ok=True)
-        tc_code_gen(l_temp_inner_output, code_path, "DOUBLE", -1, 0)
+        tc_code_gen(l_temp_inner_output, code_path, dtype, -1, 0)
     else :
         print(f"Kernel already exists at {bin_path}.\nSkipping code generation.", file=sys.stderr)
     

@@ -5,8 +5,9 @@ TconT is a tensor contraction workspace built around backend-specific planning a
 Current repository status:
 - `tcont` shared library builds successfully with CMake.
 - `bench_tccg` benchmark builds and runs through the `plan -> prepare -> benchmark` flow.
+- The benchmark supports both FP64 and FP32 benchmark case sets.
 - The benchmark can optionally run correctness verification with `--verify`.
-- The API already carries scalar type information (`float` / `double`), but the current Cogent backend still generates and runs `double` kernels only.
+- The repository includes a batch runner that executes all TCCG equations and stores per-precision CSV results.
 
 ## Requirements
 
@@ -19,6 +20,11 @@ Current repository status:
 The top-level build currently expects:
 - `find_package(CUDAToolkit REQUIRED)`
 - `find_package(OpenMP REQUIRED)`
+
+For JSON parsing in the Cogent backend:
+
+- if `nlohmann_json` is available as a CMake package, it is linked normally
+- otherwise the build falls back to the vendored headers under `external/nlohmann/`
 
 ## Build
 
@@ -41,12 +47,20 @@ Build only the TCCG benchmark:
 cmake --build build --target bench_tccg -j
 ```
 
+If you delete `build/`, recreate it from the repository root:
+
+```bash
+cmake -S . -B build
+cmake --build build --target bench_tccg -j
+```
+
 ## Output Layout
 
 Important build outputs:
 
 - Shared library: `build/src/libtcont.so`
 - TCCG benchmark: `build/benchmarks/tccg/bench_tccg`
+- Batch runner input binary: `build/benchmarks/tccg/bench_tccg`
 
 ## Benchmark Layout
 
@@ -64,6 +78,7 @@ The TCCG benchmark is already split by responsibility:
 - `tccg_init.hpp`: benchmark tensor initialization
 - `tccg_verify.*`: correctness checking and tolerance handling
 - `bench_tccg.cpp`: runner
+- `run_tccg_benchmarks.py`: full FP64/FP32 sweep and CSV export
 
 ## Run `bench_tccg`
 
@@ -85,11 +100,25 @@ Run with correctness verification:
 ./build/benchmarks/tccg/bench_tccg -b 12 --verify
 ```
 
+Run the FP32 case set:
+
+```bash
+./build/benchmarks/tccg/bench_tccg -b 12 --fp32 --verify
+```
+
 Current CLI options:
 
 - `-b`, `--benchmark <id>`: select a TCCG benchmark case
+- `--fp64`: run the FP64 benchmark cases
+- `--fp32`: run the FP32 benchmark cases
 - `--verify`: run correctness verification after timing
 - `-h`, `--help`: print usage
+
+Each benchmark run ends with a machine-readable summary line:
+
+```text
+TCCG_RESULT equation=12 precision=fp32 operations=... time_ms=... gflops=... validation=PASS
+```
 
 ## Timing Flow
 
@@ -105,6 +134,7 @@ The benchmark path performs:
 - repeated timed launches using CUDA events
 - average kernel time reporting
 - GFLOPS reporting
+- final summary-line reporting for script parsing
 
 Current default benchmark options in `benchmarks/tccg/bench_tccg.cpp`:
 
@@ -129,11 +159,44 @@ Current verification tolerances:
 - `Float64`: `abs_tol=1e-11`, `rel_tol=1e-9`
 - `Float32` / TF32-style: `abs_tol=2e-3`, `rel_tol=5e-2`
 
+Verification returns a structured pass/fail result that is emitted by `bench_tccg` as `validation=PASS`, `FAIL`, or `SKIP`.
+
+## Run All TCCG Benchmarks
+
+Use the batch runner to execute every equation for both precisions and save one CSV per precision:
+
+```bash
+python3 benchmarks/tccg/run_tccg_benchmarks.py
+```
+
+Default outputs:
+
+- `benchmarks/tccg/results/tccg_fp64_results.csv`
+- `benchmarks/tccg/results/tccg_fp32_results.csv`
+
+Useful options:
+
+- `--binary <path>`: override the `bench_tccg` binary path
+- `--output-dir <dir>`: choose a different results directory
+- `--start <id>`: first equation index to run
+- `--end <id>`: last equation index to run, inclusive
+- `--no-verify`: skip correctness checking
+
+Each CSV contains:
+
+- `equation`
+- `precision`
+- `operation_count`
+- `time_ms`
+- `gflops`
+- `validation`
+- `error_message`
+
 ## Current Limitations
 
-- The public API already supports `ScalarType::Float32` and `ScalarType::Float64`.
-- The current Cogent planner/runtime still supports only `double` kernels.
-- Selecting `Float32` in the API is useful for plumbing and verification paths, but Cogent execution will still reject non-`double` kernels until code generation is extended.
+- TCCG benchmarking and verification paths support both `ScalarType::Float32` and `ScalarType::Float64`.
+- FP32 execution currently follows the Cogent TF32-style generation path and uses correspondingly looser validation tolerances.
+- Full benchmark execution still requires a CUDA-capable GPU and a CUDA toolkit visible to CMake.
 
 ## Key Source Files
 
@@ -142,6 +205,7 @@ Current verification tolerances:
 - Cogent backend API: `backends/cogent/include/cogent.hpp`
 - Cogent backend implementation: `backends/cogent/src/cogent.cpp`
 - TCCG benchmark runner: `benchmarks/tccg/bench_tccg.cpp`
+- TCCG benchmark batch runner: `benchmarks/tccg/run_tccg_benchmarks.py`
 
 ## Project Tree
 

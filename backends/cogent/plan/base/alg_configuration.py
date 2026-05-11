@@ -101,11 +101,11 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
         l_tiles_REG_Y       = [1, 2, 4, 8, 16]
         element_size        = 8
     else:
-        l_tiles_FRAG_X      = [8, 16]
-        l_tiles_FRAG_Y      = [8, 16]
-        l_tiles_FRAG_K      = [4, 8, 16]
-        l_tiles_REG_X       = [1, 2, 4, 8]
-        l_tiles_REG_Y       = [1, 2, 4, 8]
+        l_tiles_FRAG_X      = [16, 32]
+        l_tiles_FRAG_Y      = [16, 32]
+        l_tiles_FRAG_K      = [8, 16, 32]
+        l_tiles_REG_X       = [1, 2, 4, 8, 16, 32]
+        l_tiles_REG_Y       = [1, 2, 4, 8, 16, 32]
         element_size        = 4
     
     #
@@ -238,19 +238,36 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
         tmp_FRAG_K_tile_sizes = each_config_K[2]
 
         #
-        if (fvi_left in tmp_FRAG_K) and (fvi_right not in tmp_FRAG_K) :
-            if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 4 :
-                continue
-        #
-        elif (fvi_left not in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
-            if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 4 :
-                continue
-        # revised 260309
-        elif (fvi_left in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
-            if (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 4) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) == 1) :
-                continue
-            elif (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) == 1) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 4) :
-                continue
+        if data_type == "DOUBLE" :
+            if (fvi_left in tmp_FRAG_K) and (fvi_right not in tmp_FRAG_K) :
+                if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 4 :
+                    continue
+            #
+            elif (fvi_left not in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
+                if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 4 :
+                    continue
+            # revised 260309
+            elif (fvi_left in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
+                if (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 4) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) == 1) :
+                    continue
+                elif (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) == 1) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 4) :
+                    continue
+        # 0510 fixed
+        else :
+            if (fvi_left in tmp_FRAG_K) and (fvi_right not in tmp_FRAG_K) :
+                if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 8 :
+                    continue
+            #
+            elif (fvi_left not in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
+                if tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 8 :
+                    continue
+            #
+            elif (fvi_left in tmp_FRAG_K) and (fvi_right in tmp_FRAG_K) :
+                if (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) <= 8) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) == 1) :
+                    continue
+                elif (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_left) == 1) and (tc_helper.tc_helper_find_value(tmp_FRAG_K_tile_sizes, fvi_right) <= 8) :
+                    continue
+        # 0510 fixed
 
         #
         for each_config_L in list_partial_config_LEFT_FRAG_REG :
@@ -393,17 +410,29 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
             if each_config[4] != [index_mapping[2][0]] :
                 # print(f"5-2) each_config : {each_config[4]}, index_mapping : {index_mapping[2]}", file=sys.stderr)
                 continue
+        
         #
-        if tc_helper.tc_helper_find_value(each_config[5], fvi_left) < 4 and (fvi_left not in each_config[0]) :
-            d1 += 1
-            # print(f"6) each_config : {each_config}", file=sys.stderr)
-            continue
+        if data_type == "DOUBLE" :
+            #
+            if tc_helper.tc_helper_find_value(each_config[5], fvi_left) < 4 and (fvi_left not in each_config[0]) :
+                d1 += 1
+                continue
 
-        #
-        if tc_helper.tc_helper_find_value(each_config[5], fvi_right) < 4 and (fvi_right not in each_config[0]) :
-            d2 += 1
-            # print(f"7) each_config : {each_config}", file=sys.stderr)
-            continue
+            #
+            if tc_helper.tc_helper_find_value(each_config[5], fvi_right) < 4 and (fvi_right not in each_config[0]) :
+                d2 += 1
+                continue
+        # 0501 fixed
+        else :
+            #
+            if tc_helper.tc_helper_find_value(each_config[5], fvi_left) < 8 and (fvi_left not in each_config[0]) :
+                d1 += 1
+                continue
+
+            #
+            if tc_helper.tc_helper_find_value(each_config[5], fvi_right) < 8 and (fvi_right not in each_config[0]) :
+                d2 += 1
+                continue
 
         #
         size_FRAG_K = 1
@@ -440,7 +469,11 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
 
         #
         tmp_pairs = []
-        warp_cnt = (size_FRAG_X * size_FRAG_Y) // 32
+        if data_type == "DOUBLE" :
+            div_size = 32
+        else :
+            div_size = 64
+        warp_cnt = (size_FRAG_X * size_FRAG_Y) // div_size
         for x in range(1, int(warp_cnt**0.5) + 1) :
             if warp_cnt % x == 0 :
                 y = int(warp_cnt // x)
@@ -449,9 +482,14 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
                     tmp_pairs.append([y, x])
         
         # revised 260309
-        if (warp_cnt == 2) and ((size_FRAG_X * size_REG_X == 128) or (size_FRAG_Y * size_REG_Y == 128)) :
-            # print(f"8) each_config : {each_config}", file=sys.stderr)
-            continue
+        if data_type == "DOUBLE" :
+            if (warp_cnt == 2) and ((size_FRAG_X * size_REG_X == 128) or (size_FRAG_Y * size_REG_Y == 128)) :
+                # print(f"8) each_config : {each_config}", file=sys.stderr)
+                continue
+        else :
+            if (warp_cnt == 4) and ((size_FRAG_X * size_REG_X == 512) or (size_FRAG_Y * size_REG_Y == 512)) :
+                # print(f"8) each_config : {each_config}", file=sys.stderr)
+                continue
         
         #
         warp_shape = []
@@ -507,35 +545,45 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
         for stage in stages :
             for shape in warp_shape :
                 #
-                double2_left_flag, double2_right_flag = determine_double2(l_representative_problem_size, each_config[5], fvi_left, fvi_right, size_REG_X, size_REG_Y, shape, opt_print_d2)
+                # double2_left_flag, double2_right_flag = determine_double2(l_representative_problem_size, each_config[5], fvi_left, fvi_right, size_REG_X, size_REG_Y, shape, opt_print_d2)
+                double2_left_flag, double2_right_flag = determine_double2(l_representative_problem_size, each_config[5], fvi_left, fvi_right, each_config[3], each_config[4], size_REG_X, size_REG_Y, shape, opt_print_d2, data_type)
 
                 #
-                if (fvi_left in each_config[3]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_left) == 16) and (double2_left_flag == 0) :
-                    # print(f"12) each_config : {each_config}", file=sys.stderr)
-                    continue
+                if data_type == "DOUBLE" :
+                    if (fvi_left in each_config[3]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_left) == 16) and (double2_left_flag == 0) :
+                        continue
+                    
+                    #
+                    if (fvi_right in each_config[4]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_right) == 16) and (double2_right_flag == 0) :
+                        continue
+                    
+                    #
+                    if (fvi_left in each_config[3]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_left) < 8) and (double2_left_flag == 1) :
+                        continue
+                    
+                    #
+                    if (fvi_right in each_config[4]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_right) < 8) and (double2_right_flag == 1) :
+                        continue
+                else :
+                    if (fvi_left in each_config[3]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_left) == 32) and (double2_left_flag == 0) :
+                        continue
+                    
+                    #
+                    if (fvi_right in each_config[4]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_right) == 32) and (double2_right_flag == 0) :
+                        continue
                 
                 #
-                if (fvi_right in each_config[4]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_right) == 16) and (double2_right_flag == 0) :
-                    # print(f"13) each_config : {each_config}", file=sys.stderr)
-                    continue
-                
-                #
-                if (fvi_left in each_config[3]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_left) < 8) and (double2_left_flag == 1) :
-                    # print(f"14) each_config : {each_config}", file=sys.stderr)
-                    # continue
-                    double2_left_flag = 0
-                
-                #
-                if (fvi_right in each_config[4]) and (tc_helper.tc_helper_find_value(each_config[5], fvi_right) < 8) and (double2_right_flag == 1) :
-                    # print(f"15) each_config : {each_config}", file=sys.stderr)
-                    # continue
-                    double2_right_flag = 0
-                
-                #
-                num_frag_regs = 2 * ((size_FRAG_X // 8) * (size_FRAG_Y // 8) * (size_REG_X // shape[0]) * (size_REG_Y // shape[1]))
-                if num_frag_regs > 64  : #or num_frag_regs < 4 :
-                    # print(f"16) each_config : {each_config}, num_frag_regs : {num_frag_regs}", file=sys.stderr)
-                    continue
+                if data_type == "DOUBLE" :
+                    num_frag_regs = 2 * ((size_FRAG_X // 8) * (size_FRAG_Y // 8) * (size_REG_X // shape[0]) * (size_REG_Y // shape[1]))
+                    if num_frag_regs > 64 :
+                        continue
+                # 0501 fixed
+                else :
+                    num_frag_regs = 8 * ((size_FRAG_X // 16) * (size_FRAG_Y // 16) * (size_REG_X // shape[0]) * (size_REG_Y // shape[1]))
+                    if num_frag_regs > 128 :
+                        continue
+                    if num_frag_regs * ((size_FRAG_X * size_FRAG_Y) / 2) > 64000 :
+                        continue
                 
                 # revised 260309
                 if (size_REG_X != 1) and (size_REG_Y != 1) : 
@@ -638,48 +686,65 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
     return l_configurations_class
 
 #
-def determine_double2(l_representative_problem_size, l_tile_sizes, fvi_left, fvi_right, size_REG_X, size_REG_Y, shape, opt_print) :
-    #
-    double2_left_flag = 1
+def determine_double2(l_representative_problem_size, l_tile_sizes, fvi_left, fvi_right, REG_X_mapped, REG_Y_mapped, size_REG_X, size_REG_Y, shape, opt_print, data_type) :
+    def determine_vector_flag(problem_size, tile_size, reg_size_per_warp, vector_width, tensor_side, reg_fvi_flag):
+        if problem_size % vector_width != 0 :
+            if opt_print :
+                print(f"[Code Generator][determine_double2] FVI in {tensor_side} is not divisible by {vector_width} : {problem_size}")
+            return False
+
+        if reg_fvi_flag :
+            if reg_size_per_warp < vector_width :
+                if opt_print :
+                    print(f"[Code Generator][determine_double2] REG per warp in {tensor_side} is less than {vector_width} : {reg_size_per_warp}")
+                return False
+
+        if tile_size % vector_width != 0 :
+            if opt_print :
+                print(f"[Code Generator][determine_double2] Tile size of FVI in {tensor_side} is not divisible by {vector_width} : {tile_size}")
+            return False
+
+        return True
 
     #
-    if tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_left) % 2 != 0 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] FVI in LEFT has an odd size : {fvi_left} -> {tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_left)}")
-        double2_left_flag &= 0
+    left_reg_fvi_flag = (fvi_left in REG_X_mapped)
+    right_reg_fvi_flag = (fvi_right in REG_Y_mapped)
 
     #
-    if int(size_REG_X / shape[0]) < 2 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] REG_X per warp in LEFT is less than 2 : {size_REG_X} / {shape[0]} = {int(size_REG_X / shape[0])}")
-        double2_left_flag &= 0
+    if data_type == "DOUBLE" :
+        problem_size_left = tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_left)
+        tile_size_left = tc_helper.tc_helper_find_value(l_tile_sizes, fvi_left)
+        reg_x_per_warp = int(size_REG_X / shape[0])
 
-    #
-    if tc_helper.tc_helper_find_value(l_tile_sizes, fvi_left) % 2 != 0 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] Tile size of FVI in LEFT is odd : {fvi_left} -> {tc_helper.tc_helper_find_value(l_tile_sizes, fvi_left)}")
-        double2_left_flag &= 0
+        double2_left_flag = 1 if determine_vector_flag(problem_size_left, tile_size_left, reg_x_per_warp, 2, "LEFT", left_reg_fvi_flag) else 0
 
-    #
-    double2_right_flag = 1
+        problem_size_right = tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_right)
+        tile_size_right = tc_helper.tc_helper_find_value(l_tile_sizes, fvi_right)
+        reg_y_per_warp = int(size_REG_Y / shape[1])
+        
+        double2_right_flag = 1 if determine_vector_flag(problem_size_right, tile_size_right, reg_y_per_warp, 2, "RIGHT", right_reg_fvi_flag) else 0
+    # 0501 fixed
+    else :
+        problem_size_left = tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_left)
+        tile_size_left = tc_helper.tc_helper_find_value(l_tile_sizes, fvi_left)
+        reg_x_per_warp = int(size_REG_X / shape[0])
 
-    #
-    if tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_right) % 2 != 0 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] FVI in RIGHT has an odd size : {fvi_right} -> {tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_right)}")
-        double2_right_flag &= 0
+        double2_left_flag = 0
+        if determine_vector_flag(problem_size_left, tile_size_left, reg_x_per_warp, 2, "LEFT", left_reg_fvi_flag) :
+            double2_left_flag = 1
+            if determine_vector_flag(problem_size_left, tile_size_left, reg_x_per_warp, 4, "LEFT", left_reg_fvi_flag) :
+                double2_left_flag = 2
+        
+        problem_size_right = tc_helper.tc_helper_find_value(l_representative_problem_size, fvi_right)
+        tile_size_right = tc_helper.tc_helper_find_value(l_tile_sizes, fvi_right)
+        reg_y_per_warp = int(size_REG_Y / shape[1])
 
-    #
-    if int(size_REG_Y / shape[1]) < 2 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] REG_Y per warp in RIGHT is less than 2 : {size_REG_Y} / {shape[1]} = {int(size_REG_Y / shape[1])}")
-        double2_right_flag &= 0
-
-    #
-    if tc_helper.tc_helper_find_value(l_tile_sizes, fvi_right) % 2 != 0 :
-        if opt_print :
-            print(f"[Code Generator][determine_double2] Tile size of FVI in RIGHT is odd : {fvi_right} -> {tc_helper.tc_helper_find_value(l_tile_sizes, fvi_right)}")
-        double2_right_flag &= 0
+        double2_right_flag = 0
+        if determine_vector_flag(problem_size_right, tile_size_right, reg_y_per_warp, 2, "RIGHT", right_reg_fvi_flag) :
+            double2_right_flag = 1
+            if determine_vector_flag(problem_size_right, tile_size_right, reg_y_per_warp, 4, "RIGHT", right_reg_fvi_flag) :
+                double2_right_flag = 2
+    # 0501 fixed
     
     # to do
     # fvi가 frag, internal일 때, partial일 때 못쓰는거 -> compute에서 0 처리가 가능하면 괜찮음

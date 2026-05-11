@@ -1,11 +1,18 @@
-import re
 import math
 import numpy as np
-import pandas as pd
 import tc_helper as tc_helper
-import base.cost_model_260322 as cm_v2
 
-from typing import Dict, Tuple, List, Optional, Any
+# # ----------------------------------------------------------------
+# # 상수 (한 곳에서만 관리)
+# # ----------------------------------------------------------------
+PIPELINE_CONSTS = dict(
+    mma_lat_cycles  = 16.0,   # A100 FP64 DMMA latency
+    mem_lat_cycles  = 350.0,  # 128B line DRAM latency (L2 miss 기준)
+    issue_lat_cycles = 32.0,
+    l2_hit_cycles   = 50.0,   # L2 hit latency (partial 재사용 보정용)
+    stage_cap       = 5,
+    exposed_floor   = 0.6,
+)
 
 A100_DEFAULT_CAPS = {
     "sm_count": 108,
@@ -177,1294 +184,7 @@ def tc_gen_cost_models_TBs(each_config, idx, opt_print) :
         return [each_config.list_representative_problem_size, tmp_num_TBs]
 
 #
-def tc_gen_cost_models_GM(each_config, l_comb, idx, opt_print) :
-    #
-    if opt_print == 1:
-        print(f"===[{ idx }]=============== [Cost Model][GMEM Load Inputs] =====================")
-        print(f"Index Mappings : FRAG_X <- {each_config.list_FRAG_X}, FRAG_Y <- {each_config.list_FRAG_Y}")
-        print(f"               : FRAG_K <- {each_config.list_FRAG_K}")
-        print(f"               : REG_X  <- {each_config.list_REG_X}, REG_Y <- {each_config.list_REG_Y}")
-        print(f"Tile Sizes     : {each_config.list_tile_sizes}")
-        print(f"Pipeline Stage : {each_config.stage}")
-        print(f"list_comb      : {l_comb}")
-        print("============================================================================")
-    
-    #
-    size_TB = each_config.size_FRAG_X * each_config.size_FRAG_Y
-    
-    #
-    #   For Internal Indicies,
-    #
-    size_FRAG_K = 1
-    size_N_K    = 1
-    for each_int_idx in each_config.list_FRAG_K :
-        size_FRAG_K *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_int_idx)
-        size_N_K *= tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_int_idx)
-
-    #
-    #   # of "main" loop (calculated by N_K / T_K)
-    #
-    steps_main_loops = math.ceil(size_N_K / size_FRAG_K)
-
-    #
-    #   Check Types of Input such as [E_K, ...] or [E_A, ...]
-    #
-    opt_load_A_ext = -1     # -1: FVI = internal
-    opt_load_B_ext = -1     #  1: FVI = external
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_config.list_tensor_A[0]) == -1 :
-        opt_load_A_ext = 1
-    
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_config.list_tensor_B[0]) == -1 :
-        opt_load_B_ext = 1
-
-    #
-    #   Initial Values
-    #
-    size_continuous_elements_A = 1
-    size_continuous_elements_B = 1
-    size_continuous_elements_C = 1
-
-    #
-    if opt_print == 1 :
-        print("-1 : FVI = internal, 1 : FVI = external")
-        print(f"opt_load_A_ext : {opt_load_A_ext}, opt_load_B_ext : {opt_load_B_ext}")
-
-    #
-    #   Input: A (Continuous)
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_A :
-        #
-        if opt_load_A_ext == 1 : # FVI is external index
-            # Internal
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) != -1 :
-                break
-
-            # External
-            else :
-                # Need to Check if This Index is Continuous Or NOT.
-                if is_continuous == 1 :
-                    #
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    
-                    #
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else :
-                    break
-        else : # FVI is internal index
-            # External
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 :
-                break
-
-            # Internal
-            else :
-                #
-                if is_continuous == 1 :
-                    #
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    
-                    #
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else:
-                    break
-    
-    #
-    if opt_print == 1 :
-        print (f"[A] is_continuous : {is_continuous}, size_continuous_elements_A : {size_continuous_elements_A}")
-
-    #
-    #   Input: A (FRAG and REG)
-    #
-    size_A_E_FRAG = 1
-    size_A_K_FRAG = 1
-    size_A_E_REG  = 1
-    size_A_FVI    = 1
-
-    #
-    for cnt, each_idx in enumerate(each_config.list_tensor_A) :
-        #
-        if cnt == 0 :
-            size_A_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-
-        #
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : # External Index
-            # FRAG
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_A_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            # REG
-            else :
-                size_A_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else : # Internal Index
-            size_A_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    #
-    if opt_print == 1 :
-        print(f"|FVI_A|  = {size_A_FVI}")
-        print(f"|SMEM_A| = {size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG}, ({size_A_E_REG} * {size_A_E_FRAG} * {size_A_K_FRAG})")
-        print(f"|FRAG_X| = {each_config.size_FRAG_X}, |FRAG_Y| = {each_config.size_FRAG_Y}")
-        print(f"|TB|     = {size_TB}")
-
-    #
-    vol_A_per_TB = min(size_TB, size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    #
-    times_inner_A_FVI = 1
-    times_inner_A_TB = math.ceil(vol_A_per_TB / size_A_FVI)
-    steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / size_TB)
-    
-    # times_inner_A_FVI = 1
-
-    # #
-    # if each_config.double2_flag[0] == 1:
-    #     vol_A_per_TB = min((2 * size_TB), size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    #     #
-    #     times_inner_A_TB = math.ceil(vol_A_per_TB / (2 * size_A_FVI))
-    #     steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / (2 * size_TB))
-    # else :
-    #     vol_A_per_TB = min(size_TB, size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    #     #
-    #     times_inner_A_TB = math.ceil(vol_A_per_TB / size_A_FVI)
-    #     steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / size_TB)
-
-    #
-    estimated_DRAM_transaction_A_per_FVI         = times_inner_A_FVI
-    estimated_DRAM_transaction_A_per_TB          = estimated_DRAM_transaction_A_per_FVI * times_inner_A_TB
-    estimated_DRAM_transaction_A_per_inner_loops = estimated_DRAM_transaction_A_per_TB * steps_inner_A_loops
-    estimated_DRAM_transaction_A_per_main_loops  = estimated_DRAM_transaction_A_per_inner_loops * steps_main_loops
-
-    #
-    if opt_print == 1 :
-        print(f"[A] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_A_per_FVI}")
-        print(f"[A] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_A_per_TB}")
-        print(f"[A] estimated_DRAM_transaction_per_inner_loops : {estimated_DRAM_transaction_A_per_inner_loops}")
-        print(f"[A] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_A_per_main_loops}")
-
-    #
-    #   To Calculate The Cost of Loading Input Tensor per a Thread Block
-    #
-    cost_TB_load_A = estimated_DRAM_transaction_A_per_main_loops
-
-    #
-    #   Input: B
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_B :
-        #
-        if opt_load_B_ext == 1 :
-            # Internal
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) != -1 :
-                break
-
-            # External
-            else :
-                #
-                if is_continuous == 1 :
-                    #
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    
-                    #
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else :
-                    break
-        else :
-            # External
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 :
-                break
-
-            # Internal
-            else :
-                #
-                if is_continuous == 1 :
-                    #
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    
-                    #
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else :
-                    break
-    
-    #
-    if opt_print == 1 :
-        print (f"[B] is_continuous : {is_continuous}, size_continuous_elements_B : {size_continuous_elements_B}")
-
-    #
-    #   Input: B (FRAG and REG)
-    #
-    size_B_E_FRAG = 1
-    size_B_K_FRAG = 1
-    size_B_E_REG  = 1
-    size_B_FVI    = 1
-
-    #
-    for cnt, each_idx in enumerate(each_config.list_tensor_B) :
-        #
-        if cnt == 0 :
-            size_B_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        
-        #
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 :
-            # FRAG
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_B_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            # REG
-            else :
-                size_B_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else :
-            size_B_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    #
-    if opt_print == 1 :
-        print(f"|FVI_B|  = {size_B_FVI}")
-        print(f"|SMEM_B| = {size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG}, ({size_B_E_REG} * {size_B_E_FRAG} * {size_B_K_FRAG})")
-        print(f"|FRAG_X| = {each_config.size_FRAG_X}, |FRAG_Y| = {each_config.size_FRAG_Y}")
-        print(f"|TB|     = {size_TB}")
-
-    #
-    vol_B_per_TB = min(size_TB, size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    #
-    times_inner_B_FVI = 1
-    times_inner_B_TB = math.ceil(vol_B_per_TB / size_B_FVI)
-    steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / size_TB)
-
-    # times_inner_B_FVI = 1
-
-    # if each_config.double2_flag[1] == 1 :
-    #     vol_B_per_TB = min((2 * size_TB), size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    #     times_inner_B_TB = math.ceil(vol_B_per_TB / (2 * size_B_FVI))
-    #     steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / (2 * size_TB))
-    # else :
-    #     vol_B_per_TB = min(size_TB, size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    #     times_inner_B_TB = math.ceil(vol_B_per_TB / size_B_FVI)
-    #     steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / size_TB)
-
-    #
-    estimated_DRAM_transaction_B_per_FVI         = times_inner_B_FVI
-    estimated_DRAM_transaction_B_per_TB          = estimated_DRAM_transaction_B_per_FVI * times_inner_B_TB
-    estimated_DRAM_transaction_B_per_inner_loops = estimated_DRAM_transaction_B_per_TB * steps_inner_B_loops
-    estimated_DRAM_transaction_B_per_main_loops  = estimated_DRAM_transaction_B_per_inner_loops * steps_main_loops
-
-    #
-    if opt_print == 1 :
-        print(f"[B] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_B_per_FVI}")
-        print(f"[B] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_B_per_TB}")
-        print(f"[B] estimated_DRAM_transaction_per_inner_loops : {estimated_DRAM_transaction_B_per_inner_loops}")
-        print(f"[B] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_B_per_main_loops}")
-
-    #
-    #   To Calculate The Cost of Loading Input Tensor per a Thread Block
-    #
-    cost_TB_load_B = estimated_DRAM_transaction_B_per_main_loops
-
-    #
-    size_output_TB = 1
-    for each_idx in each_config.list_tensor_C :
-        size_output_TB *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-
-    #
-    size_output_fragment = 8 * 8
-    cnt_output_Fragment = math.ceil(size_output_TB / size_output_fragment)
-
-    #
-    per_row_transaction_inner_output_fragment = 8
-    cost_TB_store_C = cnt_output_Fragment * per_row_transaction_inner_output_fragment
-    
-    #
-    #   The # of Thread Blocks
-    #
-    num_TBs = l_comb[1]
-
-    if opt_print == 1 :
-        print (">>> # of TBs: ", num_TBs)
-
-    #
-    each_config.cost_load_TB       = (cost_TB_load_A + cost_TB_load_B) 
-    each_config.cost_load_input   = (cost_TB_load_A + cost_TB_load_B) * num_TBs
-    each_config.cost_store_output = cost_TB_store_C * num_TBs
-    each_config.cost_total        = each_config.cost_load_input + each_config.cost_store_output
-
-    #
-    each_config.steps_main_loops  = steps_main_loops
-
-    #
-    if opt_print == 1 :
-        print(f"Cost Input (Load)        : {each_config.cost_load_input}")
-        print(f"Cost Output (Store)      : {each_config.cost_store_output}")
-        print(f"Total Cost               : {each_config.cost_total}") 
-        print(f"# of steps for main-loop : {each_config.steps_main_loops}")
-        print ("============================================================================")
-
-#
-def estimate_lines128_strided(vol_elems, contig_elems, elem_bytes=8, align_factor=1.0):
-    """
-    vol_elems:    이번 inner-loop에서 TB가 로드해야 하는 element 수 (double 기준)
-    contig_elems: "연속으로 붙어있는" element 수 (stride가 끊기기 전까지)
-    elem_bytes:   FP64=8
-    align_factor: 128B boundary crossing/불완전 정렬에 대한 보정 (기본 1.0)
-    """
-    if vol_elems <= 0:
-        return 0
-
-    contig_elems = max(1, int(contig_elems))
-    # stride 때문에 contig block 단위로 쪼개진다고 가정
-    num_blocks = int(math.ceil(vol_elems / contig_elems))
-
-    # 한 block이 차지하는 바이트
-    block_bytes = contig_elems * elem_bytes
-
-    # 128B line을 몇 개 터치하는지 (연속 16 doubles면 128B => 1 line)
-    lines_per_block = int(math.ceil(block_bytes / 128.0))
-    lines = num_blocks * lines_per_block
-
-    # 정렬/경계 crossing 보정
-    lines = int(math.ceil(lines * float(align_factor)))
-
-    return lines
-
-#
-def tc_gen_cost_models_GM2(each_config, l_comb, idx, opt_print) :
-    #
-    if opt_print == 1:
-        print(f"===[{ idx }]=============== [Cost Model][GMEM Load Inputs] =====================")
-        print(f"Index Mappings : FRAG_X <- {each_config.list_FRAG_X}, FRAG_Y <- {each_config.list_FRAG_Y}")
-        print(f"               : FRAG_K <- {each_config.list_FRAG_K}")
-        print(f"               : REG_X  <- {each_config.list_REG_X}, REG_Y <- {each_config.list_REG_Y}")
-        print(f"Tile Sizes     : {each_config.list_tile_sizes}")
-        print(f"Pipeline stage : {each_config.stage}")
-        print(f"list_comb      : {l_comb}")
-        # [UPDATED] double2 flag 출력 추가
-        if hasattr(each_config, 'double2_flag'):
-             print(f"Double2 Flags  : A={each_config.double2_flag[0]}, B={each_config.double2_flag[1]}")
-        print("============================================================================")
-    
-    #
-    size_TB = each_config.size_FRAG_X * each_config.size_FRAG_Y
-    
-    #
-    #   For Internal Indicies,
-    #
-    size_FRAG_K = 1
-    size_N_K    = 1
-    for each_int_idx in each_config.list_FRAG_K :
-        size_FRAG_K *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_int_idx)
-        size_N_K *= tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_int_idx)
-
-    #
-    #   # of "main" loop (calculated by N_K / T_K)
-    #
-    steps_main_loops = math.ceil(size_N_K / size_FRAG_K)
-    #stage_factor = max(1, steps_main_loops - (each_config.stage - 1)) / steps_main_loops
-
-    #
-    #   Check Types of Input such as [E_K, ...] or [E_A, ...]
-    #
-    opt_load_A_ext = -1     # -1: FVI = internal
-    opt_load_B_ext = -1     #  1: FVI = external
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_config.list_tensor_A[0]) == -1 :
-        opt_load_A_ext = 1
-    
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_config.list_tensor_B[0]) == -1 :
-        opt_load_B_ext = 1
-
-    #
-    #   Initial Values
-    #
-    size_continuous_elements_A = 1
-    size_continuous_elements_B = 1
-    size_continuous_elements_C = 1
-
-    #
-    if opt_print == 1 :
-        print("-1 : FVI = internal, 1 : FVI = external")
-        print(f"opt_load_A_ext : {opt_load_A_ext}, opt_load_B_ext : {opt_load_B_ext}")
-
-    # ... (is_continuous calculation for A - unchanged) ...
-    #   Input: A (Continuous)
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_A :
-        if opt_load_A_ext == 1 : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else: break
-    
-    if opt_print == 1 :
-        print (f"[A] is_continuous : {is_continuous}, size_continuous_elements_A : {size_continuous_elements_A}")
-
-    #
-    #   Input: A (FRAG and REG)
-    #
-    size_A_E_FRAG = 1
-    size_A_K_FRAG = 1
-    size_A_E_REG  = 1
-    size_A_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_A) :
-        if cnt == 0 :
-            size_A_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : # External Index
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_A_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_A_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else : # Internal Index
-            size_A_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_A|  = {size_A_FVI}")
-        print(f"|SMEM_A| = {size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for A with double2
-    #
-    vol_A_per_TB = min(size_TB, size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    # 1. double2 flag 확인 및 vector width 설정
-    vec_width_A = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[0] == 1:
-        vec_width_A = 2
-
-    times_inner_A_FVI = 1
-    times_inner_A_TB = math.ceil(vol_A_per_TB / size_A_FVI)
-    steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / size_TB)
-
-    # 2. Transaction 횟수를 vector width로 나눔 (1회 로드 당 2배의 데이터)
-    estimated_DRAM_transaction_A_per_FVI         = times_inner_A_FVI / vec_width_A
-    #estimated_DRAM_transaction_A_per_TB          = estimated_DRAM_transaction_A_per_FVI * times_inner_A_TB
-    estimated_DRAM_transaction_A_per_inner_loops = estimated_DRAM_transaction_A_per_FVI * steps_inner_A_loops
-    estimated_DRAM_transaction_A_per_main_loops  = estimated_DRAM_transaction_A_per_inner_loops * steps_main_loops
-
-    if opt_print == 1 :
-        print(f"[A] Vector Width (double2)                     : {vec_width_A}")
-        print(f"[A] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_A_per_FVI}")
-        #print(f"[A] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_A_per_TB}")
-        print(f"[A] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_A_per_main_loops}")
-
-    # 3. 최종 Cost는 정수로 반올림 (Transaction은 정수 단위)
-    cost_TB_load_A = math.ceil(estimated_DRAM_transaction_A_per_main_loops)
-    
-    # ... (is_continuous calculation for B - unchanged) ...
-    #   Input: B
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_B :
-        if opt_load_B_ext == 1 :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-    
-    if opt_print == 1 :
-        print (f"[B] is_continuous : {is_continuous}, size_continuous_elements_B : {size_continuous_elements_B}")
-
-    #
-    #   Input: B (FRAG and REG)
-    #
-    size_B_E_FRAG = 1
-    size_B_K_FRAG = 1
-    size_B_E_REG  = 1
-    size_B_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_B) :
-        if cnt == 0 :
-            size_B_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 :
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_B_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_B_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else :
-            size_B_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_B|  = {size_B_FVI}")
-        print(f"|SMEM_B| = {size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for B with double2
-    #
-    vol_B_per_TB = min(size_TB, size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    # 1. double2 flag 확인 및 vector width 설정
-    vec_width_B = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[1] == 1:
-        vec_width_B = 2
-
-    times_inner_B_FVI = 1
-    times_inner_B_TB = math.ceil(vol_B_per_TB / size_B_FVI)
-    steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / size_TB)
-
-    # 2. Transaction 횟수를 vector width로 나눔
-    estimated_DRAM_transaction_B_per_FVI         = times_inner_B_FVI / vec_width_B
-    #estimated_DRAM_transaction_B_per_TB          = estimated_DRAM_transaction_B_per_FVI * times_inner_B_TB
-    estimated_DRAM_transaction_B_per_inner_loops = estimated_DRAM_transaction_B_per_FVI * steps_inner_B_loops
-    estimated_DRAM_transaction_B_per_main_loops  = estimated_DRAM_transaction_B_per_inner_loops * steps_main_loops
-
-    if opt_print == 1 :
-        print(f"[B] Vector Width (double2)                     : {vec_width_B}")
-        print(f"[B] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_B_per_FVI}")
-        #print(f"[B] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_B_per_TB}")
-        print(f"[B] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_B_per_main_loops}")
-
-    # 3. 최종 Cost는 정수로 반올림
-    cost_TB_load_B = math.ceil(estimated_DRAM_transaction_B_per_main_loops)
-
-    #
-    #   Output C Calculation (unchanged)
-    #
-    size_output_TB = 1
-    for each_idx in each_config.list_tensor_C :
-        size_output_TB *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-
-    size_output_fragment = 8 * 8
-    cnt_output_Fragment = math.ceil(size_output_TB / size_output_fragment)
-
-    per_row_transaction_inner_output_fragment = 8
-    cost_TB_store_C = cnt_output_Fragment * per_row_transaction_inner_output_fragment
-    
-    #
-    #   The # of Thread Blocks
-    #
-    num_TBs = l_comb[1]
-
-    if opt_print == 1 :
-        print (">>> # of TBs: ", num_TBs)
-
-    #
-    each_config.cost_load_TB_d2       = (cost_TB_load_A + cost_TB_load_B) 
-    each_config.cost_load_input_d2    = (cost_TB_load_A + cost_TB_load_B) * num_TBs
-    each_config.cost_store_output_d2  = cost_TB_store_C * num_TBs
-    each_config.cost_total_d2         = each_config.cost_load_input_d2 + each_config.cost_store_output_d2
-
-    #
-    each_config.steps_main_loops_d2  = steps_main_loops
-
-    #
-    each_config.transaction_per_loop = estimated_DRAM_transaction_A_per_inner_loops + estimated_DRAM_transaction_B_per_inner_loops
-    
-    #
-    if opt_print == 1 :
-        print(f"Cost Input (Load)        : {each_config.cost_load_input_d2}")
-        print(f"Cost Output (Store)      : {each_config.cost_store_output_d2}")
-        print(f"Total Cost               : {each_config.cost_total_d2}")
-        print(f"Transaction per loop     : {each_config.transaction_per_loop}")
-        print(f"# of steps for main-loop : {each_config.steps_main_loops_d2}")
-        print ("============================================================================")
-
-#
-def tc_gen_cost_models_GM3(each_config, l_comb, idx, opt_print) :
-    #
-    if opt_print == 1:
-        print(f"===[{ idx }]=============== [Cost Model][GMEM Load Inputs] =====================")
-        print(f"Index Mappings : FRAG_X <- {each_config.list_FRAG_X}, FRAG_Y <- {each_config.list_FRAG_Y}")
-        print(f"               : FRAG_K <- {each_config.list_FRAG_K}")
-        print(f"               : REG_X  <- {each_config.list_REG_X}, REG_Y <- {each_config.list_REG_Y}")
-        print(f"Tile Sizes     : {each_config.list_tile_sizes}")
-        print(f"Pipeline stage : {each_config.stage}")
-        print(f"list_comb      : {l_comb}")
-        if hasattr(each_config, 'double2_flag'):
-             print(f"Double2 Flags  : A={each_config.double2_flag[0]}, B={each_config.double2_flag[1]}")
-        print("============================================================================")
-    
-    #
-    size_TB = each_config.size_FRAG_X * each_config.size_FRAG_Y
-    
-    #
-    #   For Internal Indicies,
-    #
-    size_FRAG_K = 1
-    size_N_K    = 1
-    for each_int_idx in each_config.list_FRAG_K :
-        size_FRAG_K *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_int_idx)
-        size_N_K *= tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_int_idx)
-
-    #
-    #   # of "main" loop (calculated by N_K / T_K)
-    #
-    steps_main_loops = math.ceil(size_N_K / size_FRAG_K)
-    #stage_factor = max(1, steps_main_loops - (each_config.stage - 1)) / steps_main_loops
-
-    #
-    #   Check Types of Input such as [E_K, ...] or [E_A, ...]
-    #
-    opt_load_A_ext = -1     # -1: FVI = internal
-    opt_load_B_ext = -1     #  1: FVI = external
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_config.list_tensor_A[0]) == -1 :
-        opt_load_A_ext = 1
-    
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_config.list_tensor_B[0]) == -1 :
-        opt_load_B_ext = 1
-
-    #
-    #   Initial Values
-    #
-    size_continuous_elements_A = 1
-    size_continuous_elements_B = 1
-    size_continuous_elements_C = 1
-
-    #
-    if opt_print == 1 :
-        print("-1 : FVI = internal, 1 : FVI = external")
-        print(f"opt_load_A_ext : {opt_load_A_ext}, opt_load_B_ext : {opt_load_B_ext}")
-
-    # ... (is_continuous calculation for A - unchanged) ...
-    #   Input: A (Continuous)
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_A :
-        if opt_load_A_ext == 1 : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else: break
-    
-    if opt_print == 1 :
-        print (f"[A] is_continuous : {is_continuous}, size_continuous_elements_A : {size_continuous_elements_A}")
-
-    #
-    #   Input: A (FRAG and REG)
-    #
-    size_A_E_FRAG = 1
-    size_A_K_FRAG = 1
-    size_A_E_REG  = 1
-    size_A_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_A) :
-        if cnt == 0 :
-            size_A_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : # External Index
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_A_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_A_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else : # Internal Index
-            size_A_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_A|  = {size_A_FVI}")
-        print(f"|SMEM_A| = {size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for A with double2
-    #
-    # vol_A_per_TB = min(size_TB, size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    # # 1. double2 flag 확인 및 vector width 설정
-    # vec_width_A = 1
-    # if hasattr(each_config, 'double2_flag') and each_config.double2_flag[0] == 1:
-    #     vec_width_A = 2
-
-    # times_inner_A_FVI = 1
-    # times_inner_A_TB = math.ceil(vol_A_per_TB / size_A_FVI)
-    # steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / size_TB)
-
-    # # 2. Transaction 횟수를 vector width로 나눔 (1회 로드 당 2배의 데이터)
-    # estimated_DRAM_transaction_A_per_FVI         = times_inner_A_FVI / vec_width_A
-    # #estimated_DRAM_transaction_A_per_TB          = estimated_DRAM_transaction_A_per_FVI * times_inner_A_TB
-    # estimated_DRAM_transaction_A_per_inner_loops = estimated_DRAM_transaction_A_per_FVI * steps_inner_A_loops
-    # estimated_DRAM_transaction_A_per_main_loops  = estimated_DRAM_transaction_A_per_inner_loops * steps_main_loops
-
-    # if opt_print == 1 :
-    #     print(f"[A] Vector Width (double2)                     : {vec_width_A}")
-    #     print(f"[A] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_A_per_FVI}")
-    #     #print(f"[A] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_A_per_TB}")
-    #     print(f"[A] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_A_per_main_loops}")
-
-    # # 3. 최종 Cost는 정수로 반올림 (Transaction은 정수 단위)
-    # cost_TB_load_A = math.ceil(estimated_DRAM_transaction_A_per_main_loops)
-
-    total_A_tile_elems = size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG
-
-    # inner loop 횟수 (네 코드 그대로 유지)
-    steps_inner_A_loops = math.ceil(total_A_tile_elems / size_TB)
-
-    # inner-loop에서 로드하는 element 수(대부분 size_TB, 마지막은 remainder)
-    vol_A_per_inner = min(size_TB, total_A_tile_elems)
-
-    # double2 flag
-    vec_width_A = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[0] == 1:
-        vec_width_A = 2
-
-    # ---- 핵심: transaction(=stride로 나뉜 contiguous block 수/128B line 수)은 double2로 나누지 않음
-    # 네 의도대로라면 contig_elems가 16이면 "16 doubles = 128B" 단위로 끊김
-    # size_continuous_elements_A가 16보다 클 수도 있으니 그대로 사용(연속이 더 길면 block_bytes가 커져 lines_per_block이 늘어남)
-    align_factor_A = 1.0  # 필요하면 1.25 같은 보정 사용 가능
-    lines128_A_per_inner = estimate_lines128_strided(
-        vol_elems=vol_A_per_inner,
-        contig_elems=size_continuous_elements_A,
-        elem_bytes=8,
-        align_factor=align_factor_A
-    )
-
-    # inst(issue) 쪽만 double2 반영: (대략) element 수 / vec_width
-    # 실제 thread mapping까지 반영하면 더 좋아지지만, 최소 수정으로는 이 정도가 안정적
-    mem_issue_A_per_inner = int(math.ceil(vol_A_per_inner / float(vec_width_A)))
-
-    # main loop 반영
-    lines128_A_per_main = lines128_A_per_inner * steps_inner_A_loops * steps_main_loops
-    mem_issue_A_per_main = mem_issue_A_per_inner * steps_inner_A_loops * steps_main_loops
-
-    # 기존 cost 변수에선 transaction(비용)을 line 기반으로 넣는 게 더 일관됨
-    cost_TB_load_A = int(math.ceil(lines128_A_per_main))
-    
-    # ... (is_continuous calculation for B - unchanged) ...
-    #   Input: B
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_B :
-        if opt_load_B_ext == 1 :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-    
-    if opt_print == 1 :
-        print (f"[B] is_continuous : {is_continuous}, size_continuous_elements_B : {size_continuous_elements_B}")
-
-    #
-    #   Input: B (FRAG and REG)
-    #
-    size_B_E_FRAG = 1
-    size_B_K_FRAG = 1
-    size_B_E_REG  = 1
-    size_B_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_B) :
-        if cnt == 0 :
-            size_B_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 :
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_B_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_B_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else :
-            size_B_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_B|  = {size_B_FVI}")
-        print(f"|SMEM_B| = {size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for B with double2
-    #
-    # vol_B_per_TB = min(size_TB, size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    # # 1. double2 flag 확인 및 vector width 설정
-    # vec_width_B = 1
-    # if hasattr(each_config, 'double2_flag') and each_config.double2_flag[1] == 1:
-    #     vec_width_B = 2
-
-    # times_inner_B_FVI = 1
-    # times_inner_B_TB = math.ceil(vol_B_per_TB / size_B_FVI)
-    # steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / size_TB)
-
-    # # 2. Transaction 횟수를 vector width로 나눔
-    # estimated_DRAM_transaction_B_per_FVI         = times_inner_B_FVI / vec_width_B
-    # #estimated_DRAM_transaction_B_per_TB          = estimated_DRAM_transaction_B_per_FVI * times_inner_B_TB
-    # estimated_DRAM_transaction_B_per_inner_loops = estimated_DRAM_transaction_B_per_FVI * steps_inner_B_loops
-    # estimated_DRAM_transaction_B_per_main_loops  = estimated_DRAM_transaction_B_per_inner_loops * steps_main_loops
-
-    # if opt_print == 1 :
-    #     print(f"[B] Vector Width (double2)                     : {vec_width_B}")
-    #     print(f"[B] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_B_per_FVI}")
-    #     #print(f"[B] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_B_per_TB}")
-    #     print(f"[B] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_B_per_main_loops}")
-
-    # # 3. 최종 Cost는 정수로 반올림
-    # cost_TB_load_B = math.ceil(estimated_DRAM_transaction_B_per_main_loops)
-
-    total_B_tile_elems = size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG
-    steps_inner_B_loops = math.ceil(total_B_tile_elems / size_TB)
-    vol_B_per_inner = min(size_TB, total_B_tile_elems)
-
-    vec_width_B = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[1] == 1:
-        vec_width_B = 2
-
-    align_factor_B = 1.0
-    lines128_B_per_inner = estimate_lines128_strided(
-        vol_elems=vol_B_per_inner,
-        contig_elems=size_continuous_elements_B,
-        elem_bytes=8,
-        align_factor=align_factor_B
-    )
-    mem_issue_B_per_inner = int(math.ceil(vol_B_per_inner / float(vec_width_B)))
-
-    lines128_B_per_main = lines128_B_per_inner * steps_inner_B_loops * steps_main_loops
-    mem_issue_B_per_main = mem_issue_B_per_inner * steps_inner_B_loops * steps_main_loops
-
-    cost_TB_load_B = int(math.ceil(lines128_B_per_main))
-
-    if opt_print == 1:
-        print(f"[B] Vector Width (double2)                 : {vec_width_B}")
-        print(f"[B] contig_elems (stride block)           : {size_continuous_elements_B}")
-        print(f"[B] vol_B_per_inner (elems)               : {vol_B_per_inner}")
-        print(f"[B] lines128_B_per_inner                  : {lines128_B_per_inner}")
-        print(f"[B] mem_issue_B_per_inner (approx)        : {mem_issue_B_per_inner}")
-        print(f"[B] cost_TB_load_B (lines128 over main)   : {cost_TB_load_B}")
-
-    #
-    #   Output C Calculation (unchanged)
-    #
-    size_output_TB = 1
-    for each_idx in each_config.list_tensor_C :
-        size_output_TB *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-
-    size_output_fragment = 8 * 8
-    cnt_output_Fragment = math.ceil(size_output_TB / size_output_fragment)
-
-    per_row_transaction_inner_output_fragment = 8
-    cost_TB_store_C = cnt_output_Fragment * per_row_transaction_inner_output_fragment
-    
-    #
-    #   The # of Thread Blocks
-    #
-    num_TBs = l_comb[1]
-
-    if opt_print == 1 :
-        print (">>> # of TBs: ", num_TBs)
-
-    #
-    each_config.cost_load_TB_d2       = (cost_TB_load_A + cost_TB_load_B) 
-    each_config.cost_load_input_d2    = (cost_TB_load_A + cost_TB_load_B) * num_TBs
-    each_config.cost_store_output_d2  = cost_TB_store_C * num_TBs
-    each_config.cost_total_d2         = each_config.cost_load_input_d2 + each_config.cost_store_output_d2
-
-    #
-    each_config.steps_main_loops_d2  = steps_main_loops
-
-    #
-    lines128_per_loop = lines128_A_per_inner * steps_inner_A_loops + lines128_B_per_inner * steps_inner_B_loops
-    bytes_per_loop = (vol_A_per_inner * steps_inner_A_loops + vol_B_per_inner * steps_inner_B_loops) * 8
-
-    each_config.transaction_per_loop = lines128_per_loop  # 호환 유지(의미는 lines128)
-
-    # 추가로 디버깅/학습용 feature도 저장
-    each_config.bytes_per_loop = bytes_per_loop
-    each_config.lines128_per_loop = lines128_per_loop
-    each_config.mem_issue_per_loop = mem_issue_A_per_inner * steps_inner_A_loops + mem_issue_B_per_inner * steps_inner_B_loops
-
-    #each_config.transaction_per_loop = estimated_DRAM_transaction_A_per_inner_loops + estimated_DRAM_transaction_B_per_inner_loops
-    
-    #
-    if opt_print == 1:
-        print(f"Cost Input (Load)        : {each_config.cost_load_input_d2}")
-        print(f"Cost Output (Store)      : {each_config.cost_store_output_d2}")
-        print(f"Total Cost               : {each_config.cost_total_d2}")
-        print(f"Transaction per loop     : {each_config.transaction_per_loop} (interpreted as lines128)")
-        print(f"Bytes per loop           : {each_config.bytes_per_loop}")
-        print(f"Mem-issue per loop       : {each_config.mem_issue_per_loop} (approx, affected by double2)")
-        print(f"# of steps for main-loop : {each_config.steps_main_loops_d2}")
-        print("============================================================================")
-
-def tc_gen_cost_models_GM4(each_config, l_comb, idx, opt_print) :
-    #
-    if opt_print == 1:
-        print(f"===[{ idx }]=============== [Cost Model][GMEM Load Inputs] =====================")
-        print(f"Index Mappings : FRAG_X <- {each_config.list_FRAG_X}, FRAG_Y <- {each_config.list_FRAG_Y}")
-        print(f"               : FRAG_K <- {each_config.list_FRAG_K}")
-        print(f"               : REG_X  <- {each_config.list_REG_X}, REG_Y <- {each_config.list_REG_Y}")
-        print(f"Tile Sizes     : {each_config.list_tile_sizes}")
-        print(f"Pipeline stage : {each_config.stage}")
-        print(f"list_comb      : {l_comb}")
-        if hasattr(each_config, 'double2_flag'):
-             print(f"Double2 Flags  : A={each_config.double2_flag[0]}, B={each_config.double2_flag[1]}")
-        print("============================================================================")
-    
-    #
-    size_TB = each_config.size_FRAG_X * each_config.size_FRAG_Y
-    
-    #
-    #   For Internal Indicies,
-    #
-    size_FRAG_K = 1
-    size_N_K    = 1
-    for each_int_idx in each_config.list_FRAG_K :
-        size_FRAG_K *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_int_idx)
-        size_N_K *= tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_int_idx)
-
-    #
-    #   # of "main" loop (calculated by N_K / T_K)
-    #
-    steps_main_loops = math.ceil(size_N_K / size_FRAG_K)
-    #stage_factor = max(1, steps_main_loops - (each_config.stage - 1)) / steps_main_loops
-
-    #
-    #   Check Types of Input such as [E_K, ...] or [E_A, ...]
-    #
-    opt_load_A_ext = -1     # -1: FVI = internal
-    opt_load_B_ext = -1     #  1: FVI = external
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_config.list_tensor_A[0]) == -1 :
-        opt_load_A_ext = 1
-    
-    if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_config.list_tensor_B[0]) == -1 :
-        opt_load_B_ext = 1
-
-    #
-    #   Initial Values
-    #
-    size_continuous_elements_A = 1
-    size_continuous_elements_B = 1
-    size_continuous_elements_C = 1
-
-    #
-    if opt_print == 1 :
-        print("-1 : FVI = internal, 1 : FVI = external")
-        print(f"opt_load_A_ext : {opt_load_A_ext}, opt_load_B_ext : {opt_load_B_ext}")
-
-    # ... (is_continuous calculation for A - unchanged) ...
-    #   Input: A (Continuous)
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_A :
-        if opt_load_A_ext == 1 : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else : 
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_A *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else: break
-    
-    if opt_print == 1 :
-        print (f"[A] is_continuous : {is_continuous}, size_continuous_elements_A : {size_continuous_elements_A}")
-
-    #
-    #   Input: A (FRAG and REG)
-    #
-    size_A_E_FRAG = 1
-    size_A_K_FRAG = 1
-    size_A_E_REG  = 1
-    size_A_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_A) :
-        if cnt == 0 :
-            size_A_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_B, each_idx) == -1 : # External Index
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_A_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_A_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else : # Internal Index
-            size_A_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_A|  = {size_A_FVI}")
-        print(f"|SMEM_A| = {size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for A with double2
-    #
-    # vol_A_per_TB = min(size_TB, size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG)
-
-    # # 1. double2 flag 확인 및 vector width 설정
-    # vec_width_A = 1
-    # if hasattr(each_config, 'double2_flag') and each_config.double2_flag[0] == 1:
-    #     vec_width_A = 2
-
-    # times_inner_A_FVI = 1
-    # times_inner_A_TB = math.ceil(vol_A_per_TB / size_A_FVI)
-    # steps_inner_A_loops = math.ceil(size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG / size_TB)
-
-    # # 2. Transaction 횟수를 vector width로 나눔 (1회 로드 당 2배의 데이터)
-    # estimated_DRAM_transaction_A_per_FVI         = times_inner_A_FVI / vec_width_A
-    # #estimated_DRAM_transaction_A_per_TB          = estimated_DRAM_transaction_A_per_FVI * times_inner_A_TB
-    # estimated_DRAM_transaction_A_per_inner_loops = estimated_DRAM_transaction_A_per_FVI * steps_inner_A_loops
-    # estimated_DRAM_transaction_A_per_main_loops  = estimated_DRAM_transaction_A_per_inner_loops * steps_main_loops
-
-    # if opt_print == 1 :
-    #     print(f"[A] Vector Width (double2)                     : {vec_width_A}")
-    #     print(f"[A] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_A_per_FVI}")
-    #     #print(f"[A] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_A_per_TB}")
-    #     print(f"[A] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_A_per_main_loops}")
-
-    # # 3. 최종 Cost는 정수로 반올림 (Transaction은 정수 단위)
-    # cost_TB_load_A = math.ceil(estimated_DRAM_transaction_A_per_main_loops)
-
-    total_A_tile_elems = size_A_E_REG * size_A_E_FRAG * size_A_K_FRAG
-
-    # inner loop 횟수 (네 코드 그대로 유지)
-    steps_inner_A_loops = math.ceil(total_A_tile_elems / size_TB)
-
-    # inner-loop에서 로드하는 element 수(대부분 size_TB, 마지막은 remainder)
-    vol_A_per_inner = min(size_TB, total_A_tile_elems)
-    
-    # double2 flag
-    vec_width_A = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[0] == 1:
-        vec_width_A = 2
-
-    # ---- 핵심: transaction(=stride로 나뉜 contiguous block 수/128B line 수)은 double2로 나누지 않음
-    # 네 의도대로라면 contig_elems가 16이면 "16 doubles = 128B" 단위로 끊김
-    # size_continuous_elements_A가 16보다 클 수도 있으니 그대로 사용(연속이 더 길면 block_bytes가 커져 lines_per_block이 늘어남)
-    align_factor_A = 1.0  # 필요하면 1.25 같은 보정 사용 가능
-    lines128_A_per_inner = estimate_lines128_strided(
-        vol_elems=vol_A_per_inner,
-        contig_elems=size_continuous_elements_A,
-        elem_bytes=8,
-        align_factor=align_factor_A
-    )
-
-    # inst(issue) 쪽만 double2 반영: (대략) element 수 / vec_width
-    # 실제 thread mapping까지 반영하면 더 좋아지지만, 최소 수정으로는 이 정도가 안정적
-    mem_issue_A_per_inner = int(math.ceil(vol_A_per_inner / float(vec_width_A)))
-
-    # main loop 반영
-    lines128_A_per_main = lines128_A_per_inner * steps_inner_A_loops * steps_main_loops
-    mem_issue_A_per_main = mem_issue_A_per_inner * steps_inner_A_loops * steps_main_loops
-
-    # 기존 cost 변수에선 transaction(비용)을 line 기반으로 넣는 게 더 일관됨
-    cost_TB_load_A = int(math.ceil(lines128_A_per_main))
-    
-    # ... (is_continuous calculation for B - unchanged) ...
-    #   Input: B
-    #
-    is_continuous = 1
-    for each_idx in each_config.list_tensor_B :
-        if opt_load_B_ext == 1 :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) != -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-        else :
-            if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 : break
-            else :
-                if is_continuous == 1 :
-                    size_continuous_elements_B *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-                    if tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx) != tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, each_idx) :
-                        is_continuous = -1
-                else : break
-    
-    if opt_print == 1 :
-        print (f"[B] is_continuous : {is_continuous}, size_continuous_elements_B : {size_continuous_elements_B}")
-
-    #
-    #   Input: B (FRAG and REG)
-    #
-    size_B_E_FRAG = 1
-    size_B_K_FRAG = 1
-    size_B_E_REG  = 1
-    size_B_FVI    = 1
-
-    for cnt, each_idx in enumerate(each_config.list_tensor_B) :
-        if cnt == 0 :
-            size_B_FVI = tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        if tc_helper.tc_helper_find_index(each_config.list_tensor_A, each_idx) == -1 :
-            if tc_helper.tc_helper_find_index(each_config.list_REG_X, each_idx) == -1 and tc_helper.tc_helper_find_index(each_config.list_REG_Y, each_idx) == -1 :
-                size_B_E_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-            else :
-                size_B_E_REG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-        else :
-            size_B_K_FRAG *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-    
-    if opt_print == 1 :
-        print(f"|FVI_B|  = {size_B_FVI}")
-        print(f"|SMEM_B| = {size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG}")
-
-    #
-    #   ### [UPDATED] Cost Calculation Logic for B with double2
-    #
-    # vol_B_per_TB = min(size_TB, size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG)
-
-    # # 1. double2 flag 확인 및 vector width 설정
-    # vec_width_B = 1
-    # if hasattr(each_config, 'double2_flag') and each_config.double2_flag[1] == 1:
-    #     vec_width_B = 2
-
-    # times_inner_B_FVI = 1
-    # times_inner_B_TB = math.ceil(vol_B_per_TB / size_B_FVI)
-    # steps_inner_B_loops = math.ceil(size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG / size_TB)
-
-    # # 2. Transaction 횟수를 vector width로 나눔
-    # estimated_DRAM_transaction_B_per_FVI         = times_inner_B_FVI / vec_width_B
-    # #estimated_DRAM_transaction_B_per_TB          = estimated_DRAM_transaction_B_per_FVI * times_inner_B_TB
-    # estimated_DRAM_transaction_B_per_inner_loops = estimated_DRAM_transaction_B_per_FVI * steps_inner_B_loops
-    # estimated_DRAM_transaction_B_per_main_loops  = estimated_DRAM_transaction_B_per_inner_loops * steps_main_loops
-
-    # if opt_print == 1 :
-    #     print(f"[B] Vector Width (double2)                     : {vec_width_B}")
-    #     print(f"[B] estimated_DRAM_transaction_per_FVI         : {estimated_DRAM_transaction_B_per_FVI}")
-    #     #print(f"[B] estimated_DRAM_transaction_per_TB          : {estimated_DRAM_transaction_B_per_TB}")
-    #     print(f"[B] estimated_DRAM_transaction_per_main_loops  : {estimated_DRAM_transaction_B_per_main_loops}")
-
-    # # 3. 최종 Cost는 정수로 반올림
-    # cost_TB_load_B = math.ceil(estimated_DRAM_transaction_B_per_main_loops)
-
-    total_B_tile_elems = size_B_E_REG * size_B_E_FRAG * size_B_K_FRAG
-    steps_inner_B_loops = math.ceil(total_B_tile_elems / size_TB)
-    vol_B_per_inner = min(size_TB, total_B_tile_elems)
-
-    vec_width_B = 1
-    if hasattr(each_config, 'double2_flag') and each_config.double2_flag[1] == 1:
-        vec_width_B = 2
-
-    align_factor_B = 1.0
-    lines128_B_per_inner = estimate_lines128_strided(
-        vol_elems=vol_B_per_inner,
-        contig_elems=size_continuous_elements_B,
-        elem_bytes=8,
-        align_factor=align_factor_B
-    )
-    mem_issue_B_per_inner = int(math.ceil(vol_B_per_inner / float(vec_width_B)))
-
-    lines128_B_per_main = lines128_B_per_inner * steps_inner_B_loops * steps_main_loops
-    mem_issue_B_per_main = mem_issue_B_per_inner * steps_inner_B_loops * steps_main_loops
-
-    cost_TB_load_B = int(math.ceil(lines128_B_per_main))
-
-    if opt_print == 1:
-        print(f"[B] Vector Width (double2)                 : {vec_width_B}")
-        print(f"[B] contig_elems (stride block)           : {size_continuous_elements_B}")
-        print(f"[B] vol_B_per_inner (elems)               : {vol_B_per_inner}")
-        print(f"[B] lines128_B_per_inner                  : {lines128_B_per_inner}")
-        print(f"[B] mem_issue_B_per_inner (approx)        : {mem_issue_B_per_inner}")
-        print(f"[B] cost_TB_load_B (lines128 over main)   : {cost_TB_load_B}")
-
-    #
-    #   Output C Calculation (unchanged)
-    #
-    size_output_TB = 1
-    for each_idx in each_config.list_tensor_C :
-        size_output_TB *= tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx)
-
-    size_output_fragment = 8 * 8
-    cnt_output_Fragment = math.ceil(size_output_TB / size_output_fragment)
-
-    per_row_transaction_inner_output_fragment = 8
-    cost_TB_store_C = cnt_output_Fragment * per_row_transaction_inner_output_fragment
-    
-    #
-    #   The # of Thread Blocks
-    #
-    num_TBs = l_comb[1]
-
-    if opt_print == 1 :
-        print (">>> # of TBs: ", num_TBs)
-
-    #
-    each_config.cost_load_TB_d2       = (cost_TB_load_A + cost_TB_load_B) 
-    each_config.cost_load_input_d2    = (cost_TB_load_A + cost_TB_load_B) * num_TBs
-    each_config.cost_store_output_d2  = cost_TB_store_C * num_TBs
-    each_config.cost_total_d2         = each_config.cost_load_input_d2 + each_config.cost_store_output_d2
-
-    #
-    each_config.steps_main_loops_d2  = steps_main_loops
-
-    #
-    lines128_per_loop = lines128_A_per_inner * steps_inner_A_loops + lines128_B_per_inner * steps_inner_B_loops
-    bytes_per_loop = (vol_A_per_inner * steps_inner_A_loops + vol_B_per_inner * steps_inner_B_loops) * 8
-
-    each_config.transaction_per_loop = lines128_per_loop  # 호환 유지(의미는 lines128)
-
-    # 추가로 디버깅/학습용 feature도 저장
-    each_config.bytes_per_loop = bytes_per_loop
-    each_config.lines128_per_loop = lines128_per_loop
-    each_config.mem_issue_per_loop = mem_issue_A_per_inner * steps_inner_A_loops + mem_issue_B_per_inner * steps_inner_B_loops
-
-    #each_config.transaction_per_loop = estimated_DRAM_transaction_A_per_inner_loops + estimated_DRAM_transaction_B_per_inner_loops
-    
-    #
-    if opt_print == 1:
-        print(f"Cost Input (Load)        : {each_config.cost_load_input_d2}")
-        print(f"Cost Output (Store)      : {each_config.cost_store_output_d2}")
-        print(f"Total Cost               : {each_config.cost_total_d2}")
-        print(f"Transaction per loop     : {each_config.transaction_per_loop} (interpreted as lines128)")
-        print(f"Bytes per loop           : {each_config.bytes_per_loop}")
-        print(f"Mem-issue per loop       : {each_config.mem_issue_per_loop} (approx, affected by double2)")
-        print(f"# of steps for main-loop : {each_config.steps_main_loops_d2}")
-        print("============================================================================")
-
-#
-def tc_gen_cost_models_Kernels(each_config) :
-    #
-    opt_full_ext = True
-    opt_full_int = True
-
-    #
-    for each_idx_tile in each_config.list_tile_sizes :
-        #
-        idx_name = each_idx_tile[0]
-        idx_tile = each_idx_tile[1]
-
-        #
-        if tc_helper.tc_helper_find_index(each_config.list_FRAG_K, idx_name) != -1 :
-            if tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, idx_name) % idx_tile != 0:
-                opt_full_int = False               
-        else :
-            if tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, idx_name) % idx_tile != 0 :
-                opt_full_ext = False
-    
-    #
-    each_config.kernel_full_ext = opt_full_ext
-    each_config.kernel_full_int = opt_full_int
-
-#
-def tc_gen_cost_models_Computes(each_config) :
+def tc_gen_cost_models_Computes(each_config, data_type) :
     #
     size_output_TB = 1
     for each_idx in each_config.list_tensor_C :
@@ -1482,428 +202,28 @@ def tc_gen_cost_models_Computes(each_config) :
     y_shape = each_config.warp_shape[1]
 
     #
-    a_frag_per_warp = ((size_FRAG_Y / 8) * size_REG_Y) / y_shape
-    b_frag_per_warp = ((size_FRAG_X / 8) * size_REG_X) / x_shape
+    if data_type == "DOUBLE" :
+        a_frag_per_warp = ((size_FRAG_Y / 8) * size_REG_Y) / y_shape
+        b_frag_per_warp = ((size_FRAG_X / 8) * size_REG_X) / x_shape
+    else :
+        a_frag_per_warp = ((size_FRAG_Y / 16) * size_REG_Y) / y_shape
+        b_frag_per_warp = ((size_FRAG_X / 16) * size_REG_X) / x_shape
 
     #
-    reg_per_thread = a_frag_per_warp * b_frag_per_warp * 2
+    if data_type == "DOUBLE" :
+        reg_per_thread = a_frag_per_warp * b_frag_per_warp * 2
+    else :
+        reg_per_thread = a_frag_per_warp * b_frag_per_warp * 8
 
     #
     each_config.kernel_arithmetic_intensity = reg_per_thread / (a_frag_per_warp + b_frag_per_warp)
-    each_config.flops_per_loop = (size_output_TB / 64) * (size_FRAG_K / 4)
 
-
-#
-def tc_gen_cost_models_pipeline(each_config) :
-    #
-    rho = each_config.transaction_per_loop / each_config.flops_per_loop
-    rho_eff = rho / each_config.stage
-    exposed_mem_fraction = rho_eff / (1.0 + rho_eff)
-
-    each_config.cost_load_TB_d2_overlap = math.ceil(each_config.cost_load_TB_d2 * exposed_mem_fraction)
-    each_config.cost_total_d2_overlap = each_config.cost_load_TB_d2_overlap * each_config.num_TBs + each_config.cost_store_output_d2
-
-    # each_config.cost_load_TB_overlap = math.ceil(each_config.cost_load_TB * exposed_mem_fraction)
-    # each_config.cost_total_overlap = each_config.cost_load_TB_overlap * each_config.num_TBs + each_config.cost_store_output
-
-    each_config.overlap_frac = 1.0 - exposed_mem_fraction
-
-#
-def tc_gen_cost_models_pipeline2(each_config, p_any,
-                                mma_lat_cycles=16.0,      # A100 FP64 m8n8k4 DMMA latency 근사
-                                mem_line_cycles=200.0,    # 128B line 당 유효 비용(튜닝 파라미터)
-                                stage_cap=4,              # stage 포화(4~6 추천)
-                                exposed_floor=0.01,       # load cost가 0으로 꺼지지 않게 최소 노출 비율
-                                exposed_ceiling=1.0,
-                                alpha=3.0):     # 최대 1.0
-    """
-    overlap 모델:
-      T_mem  = transaction_per_loop * mem_line_cycles
-      T_comp = flops_per_loop(=mma_inst) * mma_lat_cycles
-      T_mem_eff = T_mem / min(stage, stage_cap)
-      exposed_mem_fraction = T_mem_eff / (T_mem_eff + T_comp)
-
-    exposed_mem_fraction은 "메모리 때문에 실제로 드러나는(load가 가려지지 않는) 비율".
-    """
-
-    # 방어
-    tx = float(getattr(each_config, "transaction_per_loop", 0.0) or 0.0)
-    mma = float(getattr(each_config, "flops_per_loop", 0.0) or 0.0)  # 이름은 flops_per_loop지만 mma_inst로 사용
-    stg = int(getattr(each_config, "stage", 1) or 1)
-    stg_eff = max(1, min(stg, stage_cap))
-    stage_scale = np.sqrt(stg_eff)
-
-    # time proxy
-    T_mem = tx * float(mem_line_cycles)
-    T_comp = mma * float(mma_lat_cycles)
-
-    # stage overlap 반영
-    T_mem_eff = T_mem / float(stage_scale)
-
-    # clip/floor
-    exposed = T_mem_eff / (T_mem_eff + T_comp)
-    exposed = max(exposed_floor, min(exposed_ceiling, exposed))
-    #exposed = exposed * (1.0 + 0.5 * p_any)
-
-    # 적용
-    each_config.overlap_frac = 1.0 - exposed  # 보기 편하게 유지
-
-    each_config.cost_load_TB_d2_overlap = math.ceil(each_config.cost_load_TB_d2 * exposed)
-    each_config.cost_total_d2_overlap = (each_config.cost_load_TB_d2_overlap * each_config.num_TBs + each_config.cost_store_output_d2) * (1.0 + alpha * p_any)
-
-
-#
-def tc_gen_cost_full_partial(each_config) :
-    #
-    idx_tile_list = list(reversed(each_config.combined_tile_size))  # [(idx, tile), ...]
-    num_index     = len(idx_tile_list)
-    
-    #
-    mapped_index = [(each_config.list_FRAG_X)[0]] + [(each_config.list_FRAG_Y)[0]] + [(each_config.list_FRAG_K)[0]] + each_config.list_REG_X + each_config.list_REG_Y
-    
-    #
-    num_tb_each_idx = []
-    idx_names       = []
-    tile_sizes      = []
-    rep_sizes       = []
-    idx_index       = []
-
-    for i, (idx, tile_size) in enumerate(idx_tile_list) :
-        size_i = tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, idx)
-        nblk_i = int(math.ceil(size_i / tile_size))
-
-        idx_names.append(idx)
-        idx_index.append([i, idx[0]])
-        tile_sizes.append(int(tile_size))
-        rep_sizes.append(int(size_i))
-        num_tb_each_idx.append(nblk_i)
-
-    #
-    prod_num_tbs = int(np.prod(num_tb_each_idx)) if num_index > 0 else 0
-    if prod_num_tbs != int(each_config.num_TBs) :
-        print(f"[WARN] product(num_tb_each_idx)={prod_num_tbs} != each_config.num_TBs={each_config.num_TBs}")
-        raise ValueError("num_TBs mismatch")
-
-    #
-    bidx         = np.arange(int(each_config.num_TBs), dtype=np.int64)
-    blk_idx_cols = []
-    for i in range(num_index) :
-        stride = int(np.prod(num_tb_each_idx[i+1:])) if (i + 1) < num_index else 1
-        blk_i  = bidx // stride
-        blk_idx_cols.append(blk_i)
-        bidx   = bidx % stride
-
-    blk_idx = np.stack(blk_idx_cols, axis=1)  # (num_TBs, num_index)
-    # blk_idx[tb, i] = tb번째 block의 i번째 차원 block index
-
-    #
-    partial_cols = []
-    for i in range(num_index) :
-        nblk = num_tb_each_idx[i]
-        size_i = rep_sizes[i]
-        tile_i = tile_sizes[i]
-
-        is_partial = (blk_idx[:, i] == (nblk - 1)) & ((size_i % tile_i) != 0)
-        partial_cols.append(is_partial.astype(np.int8))
-
-    partial_flags = np.stack(partial_cols, axis=1)  # (num_TBs, num_index), 0=full, 1=partial
-
-    # match index of each input index
-    t2 = each_config.list_tensor_A
-    v2 = each_config.list_tensor_B
-    t3 = each_config.list_tensor_C
-    split_tile_size = each_config.list_tile_sizes
-    num_warp = (each_config.size_FRAG_X * each_config.size_FRAG_Y) // 32
-    t2_mapped_index = [i for i in t2 if i in mapped_index]
-    v2_mapped_index = [i for i in v2 if i in mapped_index]
-    
-    #
-    per_loop_load_t2 = 1
-    for i, idx in enumerate(t2) :
-        per_loop_load_t2 *= tc_helper.tc_helper_find_value(split_tile_size, idx)
-    
-    #
-    per_loop_load_v2 = 1
-    for i, idx in enumerate(v2) :
-        per_loop_load_v2 *= tc_helper.tc_helper_find_value(split_tile_size, idx)
-
-    #
-    t2_fvi_tile_size = tc_helper.tc_helper_find_value(split_tile_size, t2[0])
-    v2_fvi_tile_size = tc_helper.tc_helper_find_value(split_tile_size, v2[0])
-
-    #
-    double2_flag = each_config.double2_flag
-    if t3[0] in t2 :
-        t2_double2_flag = double2_flag[0]
-        v2_double2_flag = double2_flag[1]
+    if data_type == "DOUBLE" :
+        each_config.flops_per_loop = (size_output_TB / 64) * (size_FRAG_K / 4)
     else :
-        t2_double2_flag = double2_flag[0]
-        v2_double2_flag = double2_flag[1]
-    
-    # t2
-    tmp = 1
-    t2_thread_layout_in_warp = {}
-    for i, idx in enumerate(t2) :
-        #
-        tile = tc_helper.tc_helper_find_value(split_tile_size, idx)
-        
-        #
-        if (tmp >= 32) :
-            t2_thread_layout_in_warp[idx] = 1
-        elif (idx not in mapped_index) :
-            t2_thread_layout_in_warp[idx] = 0
-        else :
-            if i == 0 :
-                if t2_double2_flag :
-                    t2_thread_layout_in_warp[idx] = t2_fvi_tile_size // 2
-                    tmp *= t2_fvi_tile_size // 2
-                else :
-                    t2_thread_layout_in_warp[idx] = t2_fvi_tile_size
-                    tmp *= t2_fvi_tile_size
-            else :
-                rest = 32 // tmp
-                covered = min(rest, tile)
-                t2_thread_layout_in_warp[idx] = covered
-                tmp *= covered
+        each_config.flops_per_loop = (size_output_TB / 256) * (size_FRAG_K / 8)
 
-    #
-    t2_warp_cover = {}
-    for i, idx in enumerate(t2) :
-        if i == 0 and t2_double2_flag :
-            t2_warp_cover[idx] = t2_thread_layout_in_warp[idx] * 2
-        else :
-            t2_warp_cover[idx] = t2_thread_layout_in_warp[idx]
-
-    #
-    radices = []
-    for key in t2_mapped_index:
-        base = t2_warp_cover.get(key, 0)
-        tile = tc_helper.tc_helper_find_value(split_tile_size, key)
-
-        if base <= 0:
-            radix = 1  # base=0이면 이 차원은 분해에 기여 못하니 1로 둠(값은 계속 0 유지)
-        else:
-            radix = max(1, math.ceil(tile / base))
-        radices.append(radix)
-
-    # 2) warp_id를 mixed-radix로 분해해서 step 결정
-    t2_tb_cover = {}
-    for warp_id in range(num_warp):
-        t2_tb_cover[warp_id] = t2_warp_cover.copy()
-
-        x = warp_id
-        for key, radix in zip(t2_mapped_index, radices):
-            base = t2_warp_cover.get(key, 0)
-            tile = tc_helper.tc_helper_find_value(split_tile_size, key)
-
-            step = x % radix
-            x //= radix
-
-            if base <= 0:
-                # base가 0이면 그대로 0 유지 (원하면 여기서 다른 규칙 적용 가능)
-                t2_tb_cover[warp_id][key] = base
-            else:
-                val = base * (step + 1)
-                # tile을 넘으면 cap (안 넘을 수도 있지만 안전)
-                t2_tb_cover[warp_id][key] = min(val, tile)
-
-    # v2
-    tmp = 1
-    v2_thread_layout_in_warp = {}
-    for i, idx in enumerate(v2) :
-        #
-        tile = tc_helper.tc_helper_find_value(split_tile_size, idx)
-        
-        #
-        if (tmp >= 32) :
-            v2_thread_layout_in_warp[idx] = 1
-        elif (idx not in mapped_index) :
-            v2_thread_layout_in_warp[idx] = 0
-        else :
-            if i == 0 :
-                if v2_double2_flag :
-                    v2_thread_layout_in_warp[idx] = v2_fvi_tile_size // 2
-                    tmp *= v2_fvi_tile_size // 2
-                else :
-                    v2_thread_layout_in_warp[idx] = v2_fvi_tile_size
-                    tmp *= v2_fvi_tile_size
-            else :
-                rest = 32 // tmp
-                covered = min(rest, tile)
-                v2_thread_layout_in_warp[idx] = covered
-                tmp *= covered
-
-    #
-    v2_warp_cover = {}
-    for i, idx in enumerate(v2) :
-        if i == 0 and v2_double2_flag :
-            v2_warp_cover[idx] = v2_thread_layout_in_warp[idx] * 2
-        else :
-            v2_warp_cover[idx] = v2_thread_layout_in_warp[idx]
-
-    #
-    radices = []
-    for key in v2_mapped_index:
-        base = v2_warp_cover.get(key, 0)
-        tile = tc_helper.tc_helper_find_value(split_tile_size, key)
-
-        if base <= 0:
-            radix = 1  # base=0이면 이 차원은 분해에 기여 못하니 1로 둠(값은 계속 0 유지)
-        else:
-            radix = max(1, math.ceil(tile / base))
-        radices.append(radix)
-
-    # 2) warp_id를 mixed-radix로 분해해서 step 결정
-    v2_tb_cover = {}
-    for warp_id in range(num_warp):
-        v2_tb_cover[warp_id] = v2_warp_cover.copy()
-
-        x = warp_id
-        for key, radix in zip(v2_mapped_index, radices):
-            base = v2_warp_cover.get(key, 0)
-            tile = tc_helper.tc_helper_find_value(split_tile_size, key)
-
-            step = x % radix
-            x //= radix
-
-            if base <= 0:
-                # base가 0이면 그대로 0 유지 (원하면 여기서 다른 규칙 적용 가능)
-                v2_tb_cover[warp_id][key] = base
-            else:
-                val = base * (step + 1)
-                # tile을 넘으면 cap (안 넘을 수도 있지만 안전)
-                v2_tb_cover[warp_id][key] = min(val, tile)
-
-    partial_ratio = partial_flags.sum(axis=0) / each_config.num_TBs
-    total_partial_ratio = partial_ratio.sum()
-    p_any = float((partial_flags.sum(axis=1) > 0).mean())
-
-    # 원하는 형태로 반환
-    return p_any     # (N, D) 0=full, 1=partial
-
-
-# -----------------------------
-# Split-aware utilities
-# -----------------------------
-_split_pat = re.compile(r"^([A-Za-z_]+)(\d+)$")
-
-def _base_name(idx):
-    s = str(idx)
-    m = _split_pat.match(s)
-    return m.group(1) if m else s
-
-def _split_groups(idx_names_str):
-    """
-    idx_names_str: list[str] like ['a1','a2','b',...]
-    return: { 'a': [('a1',1),('a2',2)], ... } (digit asc)
-    """
-    g = {}
-    for s in idx_names_str:
-        m = _split_pat.match(s)
-        if not m:
-            continue
-        base, d = m.group(1), int(m.group(2))
-        g.setdefault(base, []).append((s, d))
-    out = {}
-    for base, items in g.items():
-        if len(items) >= 2:
-            out[base] = sorted(items, key=lambda x: x[1])
-    return out
-
-def build_tb_partial_penalty_split_aware(blk_idx, idx_names, tile_sizes, rep_size_dict):
-    """
-    TB별 partial penalty를 '원래(base) index' 기준으로 만든다.
-    - split base(예: a1,a2)는 base='a'에 대해 penalty(1~2)를 overflow 비율로 계산
-    - unsplit은 기존 remainder 기반으로 penalty=1 or 2
-
-    return:
-      penalty_by_base: dict[base] -> np.ndarray(shape=(num_TBs,), float32)  (1~2)
-    """
-    num_TBs = blk_idx.shape[0]
-    idx_names_str = [str(x) for x in idx_names]
-
-    name2dim = {s: i for i, s in enumerate(idx_names_str)}
-    name2tile = {s: int(tile_sizes[i]) for i, s in enumerate(idx_names_str)}
-
-    penalty_by_base = {}
-
-    # 1) split 그룹 처리
-    groups = _split_groups(idx_names_str)
-    used_children = set()
-
-    for base, items in groups.items():
-        # 현재 커널 규칙: 1,2로만 split (a1,a2)라 가정
-        if base not in rep_size_dict:
-            continue
-        if len(items) != 2:
-            continue
-
-        (c1, _d1), (c2, _d2) = items[0], items[1]  # a1, a2
-        used_children.update([c1, c2])
-
-        A = int(rep_size_dict[base])
-
-        Ta1 = name2tile[c1]
-        Ta2 = name2tile[c2]
-        Ta  = Ta1 * Ta2
-
-        dim1 = name2dim[c1]
-        dim2 = name2dim[c2]
-
-        a1_blk = blk_idx[:, dim1].astype(np.int64)
-        a2_blk = blk_idx[:, dim2].astype(np.int64)
-
-        # 너 커널의 위치 환산식: a = a2 * Ta1 + a1
-        a_start = a2_blk * Ta1 + a1_blk
-
-        ov = np.maximum(0, a_start + Ta - A).astype(np.float64)
-        frac = 1.0 - (ov / float(Ta))
-        frac = np.clip(frac, 0.0, 1.0)
-
-        # penalty: 1~2 (overflow 클수록 증가)
-        penalty = 1.0 + (1.0 - frac)
-        penalty_by_base[base] = penalty.astype(np.float32)
-
-    # 2) unsplit (또는 split child가 아닌) 처리
-    for s in idx_names_str:
-        if s in used_children:
-            continue
-        base = _base_name(s)
-        if base in penalty_by_base:
-            continue
-        if base not in rep_size_dict:
-            continue
-
-        dim = name2dim[s]
-        tile = name2tile[s]
-        size = int(rep_size_dict[base])
-
-        nblk = int(math.ceil(size / tile))
-        is_partial = (blk_idx[:, dim] == (nblk - 1)) & ((size % tile) != 0)
-
-        penalty = np.ones(num_TBs, dtype=np.float32)
-        penalty[is_partial] = 2.0
-        penalty_by_base[base] = penalty
-
-    return penalty_by_base
-
-def tensor_load_bases(tensor_idx_list, tb_cover_by_warp, mapped_index):
-    """
-    텐서에서 warp load에 관여하는 base index 집합:
-    - idx가 mapped_index에 있고
-    - 어떤 warp에서든 cover>0이면 관여로 간주
-    """
-    active = set()
-    for idx in tensor_idx_list:
-        if idx not in mapped_index:
-            continue
-        b = _base_name(idx)
-        for w in tb_cover_by_warp.keys():
-            if tb_cover_by_warp[w].get(idx, 0) > 0:
-                active.add(b)
-                break
-    return active
-
+#
 def infer_internal_indices(t2, v2, t3):
     # A와 B에 공통이고 C에는 없는 인덱스 = contraction index
     t2_set, v2_set, t3_set = set(t2), set(v2), set(t3)
@@ -1917,596 +237,894 @@ def num_inner_iters(internal_indices, split_tile_size, rep_problem_sizes):
         iters *= int(math.ceil(K / Kt))
     return int(iters)
 
-def tb_repeat_factor(per_loop_load, num_warp, double2_flag):
-    vec = 2 if double2_flag else 1
-    once = num_warp * 32 * vec
-    return int(math.ceil(int(per_loop_load) / int(once)))
+def _estimate_regs_per_thread(each_config, data_type) :
+    input_output_address = 2 * 3
+    index = len(each_config.list_tensor_C) + len(each_config.list_FRAG_K)
+    pipeline = 3
+    shm_address = 2 * 2
+    blk = len(each_config.list_tensor_C)
+    output_base = 1
 
-def warp_transactions_for_tensor(tensor_idx_list, tb_cover_by_warp, vec_elems):
-    """
-    warp들이 읽는 element 수(cover 곱)를 vec_elems로 나눠 ceil한 값의 합으로 tx 근사
-    """
-    total_tx = 0
-    for _, cover in tb_cover_by_warp.items():
-        elems = 1
-        for idx in tensor_idx_list:
-            c = cover.get(idx, 0)
-            if c > 0:
-                elems *= int(c)
-        total_tx += int(math.ceil(elems / vec_elems))
+    if data_type == "DOUBLE" :
+        fragment = (each_config.size_FRAG_X // 8) * (each_config.size_FRAG_Y // 8) * (each_config.size_REG_X // each_config.warp_shape[0]) * (each_config.size_REG_Y // each_config.warp_shape[1]) * 4
+    else :
+        fragment = (each_config.size_FRAG_X // 16) * (each_config.size_FRAG_Y // 16) * (each_config.size_REG_X // each_config.warp_shape[0]) * (each_config.size_REG_Y // each_config.warp_shape[1]) * 8
     
-    return int(total_tx)
+    else_reg = 1 + 1 + 1
 
-import math
+    regs_per_thread = input_output_address + index + pipeline + shm_address + blk + output_base + fragment + else_reg
 
-def build_tb_cover_for_tensor_base_method(
-    tensor_idx_list,
-    split_tile_size,
-    mapped_index,
-    fvi_tile_size,
-    double2_flag,
-    num_warp
+    return regs_per_thread
+
+def smem_order(frag_mapping, reg_mapping, internal, mapped_a, mapped_b) :
+    #
+    SMEM_order_a = []
+    if mapped_a[0] == frag_mapping[1] :
+        # REG_Y
+        SMEM_order_a.append(reg_mapping[1])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_a :
+                SMEM_order_a.append(internal_index)
+                break
+        # FRAG_Y
+        SMEM_order_a.append(frag_mapping[1])
+    elif mapped_a[0] == reg_mapping[1] :
+        # FRAG_Y
+        SMEM_order_a.append(frag_mapping[1])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_a :
+                SMEM_order_a.append(internal_index)
+                break
+        # REG_Y
+        SMEM_order_a.append(reg_mapping[1])
+    else :
+        # REG_Y
+        SMEM_order_a.append(reg_mapping[1])
+        # FRAG_Y
+        SMEM_order_a.append(frag_mapping[1])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_a :
+                SMEM_order_a.append(internal_index)
+                break
+    
+    #
+    SMEM_order_b = []
+    if mapped_b[0] == frag_mapping[0] :
+        # REG_X
+        SMEM_order_b.append(reg_mapping[0])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_b :
+                SMEM_order_b.append(internal_index)
+                break
+        # FRAG_X
+        SMEM_order_b.append(frag_mapping[0])
+    elif mapped_b[0] == reg_mapping[0] :
+        # FRAG_X
+        SMEM_order_b.append(frag_mapping[0])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_b :
+                SMEM_order_b.append(internal_index)
+                break
+        # REG_X
+        SMEM_order_b.append(reg_mapping[0])
+    else :
+        # REG_X
+        SMEM_order_b.append(reg_mapping[0])
+        # FRAG_X
+        SMEM_order_b.append(frag_mapping[0])
+        # Contraction index
+        for internal_index in internal :
+            if internal_index in mapped_b :
+                SMEM_order_b.append(internal_index)
+                break
+
+    # print(f"FROM cost_model ||| SMEM order a : {SMEM_order_a}, SMEM order b : {SMEM_order_b}", file=sys.stderr)
+    return SMEM_order_a[2], SMEM_order_b[2]
+
+def smem_padding_size(size_frag_x, size_frag_y, size_internal, size_reg_x, size_reg_y, config, data_type) :
+    mapped_index = config.list_FRAG_X + config.list_FRAG_Y + [config.list_FRAG_K[0]] + config.list_REG_X + config.list_REG_Y
+    
+    mapped_b = []
+    for idx in config.list_tensor_A :
+        if idx in mapped_index :
+            mapped_b.append(idx)
+    
+    mapped_a = []
+    for idx in config.list_tensor_B :
+        if idx in mapped_index :
+            mapped_a.append(idx)
+
+    frag_mapping = [config.list_FRAG_X[0]] + [config.list_FRAG_Y[0]]
+    reg_mapping = config.list_REG_X + config.list_REG_Y
+    smem_y_fvi, smem_x_fvi = smem_order(frag_mapping, reg_mapping, config.list_FRAG_K, mapped_a, mapped_b)
+
+    #
+    inner_frag_padd_x = 0
+    inner_frag_padd_y = 0
+    inter_reg_frag_padd_x = 0
+    inter_reg_frag_padd_y = 0
+    reg_y_padd = 0
+    reg_x_padd = 0
+
+    #
+    a_double2_flag = config.double2_flag[1]
+    b_double2_flag = config.double2_flag[0]
+    
+    #
+    if data_type == "DOUBLE" :
+        #
+        wavefront_unit = 16
+        padd_per_wavefront_y = wavefront_unit // size_frag_y
+        padd_per_wavefront_x = wavefront_unit // size_frag_x
+        
+        #
+        if smem_y_fvi == config.list_FRAG_K[0] :    # SMEM Order = [Reg_Y, Frag_Y, Internal]
+            reg_y_padd = 0
+        elif smem_y_fvi == config.list_FRAG_Y[0] : # SMEM Order = [Reg_Y, Internal, Frag_Y]
+            if a_double2_flag :
+                reg_y_padd = 0
+            else :
+                inner_frag_padd_y = ((8 * size_internal) // 32) * padd_per_wavefront_y
+                frag_count_per_y = size_frag_y // 8
+                if size_frag_y == 16 and padd_per_wavefront_y * (size_internal / 4) % 4 == 0 :
+                    inter_reg_frag_padd_y = wavefront_unit / 8
+                else :
+                    inter_reg_frag_padd_y = 0
+                reg_y_padd = (int)(inner_frag_padd_y * frag_count_per_y + inter_reg_frag_padd_y)
+        else :                            # SMEM Order = [Frag_Y, Internal, Reg_Y]
+            if a_double2_flag :
+                per_row_internal = wavefront_unit // size_reg_y
+                row_cnt = (4 + per_row_internal - 1) // per_row_internal
+                if row_cnt == 1 :
+                    reg_y_padd = 0
+                else :
+                    reg_y_padd = 2 * row_cnt
+            else :
+                reg_y_padd = wavefront_unit // size_reg_y
+
+        if smem_x_fvi == config.list_FRAG_K[0] :    # SMEM Order = [Reg_X, Frag_X, Internal]
+            reg_x_padd = 0
+        elif smem_x_fvi == config.list_FRAG_X[0] :    # SMEM Order = [Reg_X, Internal, Frag_X]
+            if b_double2_flag :
+                reg_x_padd = 0
+            else :
+                inner_frag_padd_x = ((8 * size_internal) // 32) * padd_per_wavefront_x
+                frag_count_per_x = size_frag_x // 8
+                if size_frag_x == 16 and padd_per_wavefront_x * (size_internal / 4) % 4 == 0 :
+                    inter_reg_frag_padd_x = wavefront_unit / 8
+                else :
+                    inter_reg_frag_padd_x = 0
+                reg_x_padd = (int)(inner_frag_padd_x * frag_count_per_x + inter_reg_frag_padd_x)
+        else :                              # SMEM Order = [Frag_X, Internal, Reg_X]
+            if b_double2_flag :            
+                per_row_internal = wavefront_unit // size_reg_x
+                row_cnt = (4 + per_row_internal - 1) // per_row_internal
+                if row_cnt == 1 :
+                    reg_x_padd = 0
+                else :
+                    reg_x_padd = 2 * row_cnt
+            #
+            else :
+                reg_x_padd = wavefront_unit // size_reg_x
+
+        #
+        if a_double2_flag :
+            if smem_y_fvi == config.list_REG_Y[0] :
+                total_y_padding = size_frag_y * reg_y_padd
+            else :
+                total_y_padding = 0
+        else :
+            if smem_y_fvi == config.list_REG_Y[0] :
+                total_y_padding = size_reg_y * reg_y_padd
+            elif smem_y_fvi == config.list_FRAG_Y[0] :
+                total_y_padding = size_reg_y * reg_y_padd
+            else :
+                total_y_padding = 0
+
+        #
+        if b_double2_flag :
+            if smem_x_fvi == config.list_REG_X[0] :
+                total_x_padding = size_frag_x * reg_x_padd
+            else :
+                total_x_padding = 0
+        else :
+            if smem_x_fvi == config.list_REG_X[0] :
+                total_x_padding = size_reg_x * reg_x_padd
+            elif smem_x_fvi == config.list_FRAG_X[0]  :
+                total_x_padding = size_reg_x * reg_x_padd
+            else :
+                total_x_padding = 0
+    #
+    else :
+        wavefront_unit = 32
+
+        #
+        if smem_y_fvi == config.list_FRAG_K[0] :
+            reg_y_padd = 0
+            total_y_padding = 0
+        elif smem_y_fvi == config.list_FRAG_Y[0] :
+            reg_y_padd = 0
+            total_y_padding = 0
+        else :
+            per_row_internal = wavefront_unit // size_reg_y
+            row_cnt = math.ceil(4 / per_row_internal)
+            vector_size = (int)(2 * a_double2_flag) # double2_flag for float, float = 0, float2 = 1, float4 = 2
+            reg_y_padd = row_cnt * vector_size
+            total_y_padding = size_frag_y * reg_y_padd
+
+        #
+        if smem_x_fvi == config.list_FRAG_K[0] :
+            reg_x_padd = 0
+            total_x_padding = 0
+        elif smem_x_fvi == config.list_FRAG_X[0] :
+            reg_x_padd = 0
+            total_x_padding = 0
+        else :
+            per_row_internal = wavefront_unit // size_reg_x
+            row_cnt = math.ceil(4 / per_row_internal)
+            vector_size = (int)(2 * a_double2_flag) # double2_flag for float, float = 0, float2 = 1, float4 = 2
+            reg_x_padd = row_cnt * vector_size
+            total_x_padding = size_frag_x * reg_x_padd
+
+    return total_y_padding, total_x_padding, reg_y_padd, reg_x_padd
+
+#
+def _estimate_smem_per_block_bytes(config, smem_overhead_bytes=128, elem_bytes=8) :
+    #
+    fx    = int(getattr(config, "size_FRAG_X", 1))
+    fy    = int(getattr(config, "size_FRAG_Y", 1))
+    fk    = int(getattr(config, "size_FRAG_K", 1))
+    rx    = int(getattr(config, "size_REG_X", 1))
+    ry    = int(getattr(config, "size_REG_Y", 1))
+    stage = int(getattr(config, "stage", 0))
+    
+    total_y_padding, total_x_padding, reg_y_padd, reg_x_padd = smem_padding_size(fx, fy, fk, rx, ry, config, elem_bytes)
+
+    config.reg_y_padd = reg_y_padd
+    config.reg_x_padd = reg_x_padd
+    config.padding = [total_x_padding, total_y_padding]
+
+    #
+    x_smem = (fx * rx * fk + total_x_padding) * stage * elem_bytes
+    y_smem = (fy * ry * fk + total_y_padding) * stage * elem_bytes
+    
+    #
+    smem_per_block = (x_smem + y_smem) + smem_overhead_bytes
+
+    #
+    config.smem_per_block = smem_per_block
+    
+    return int(smem_per_block)
+
+def _estimate_cta_per_sm_active(threads_per_block, regs_per_thread, smem_per_block, caps) :
+    """Return (cta_per_sm, bottleneck, B_hw, B_threads, B_warps, B_regs, B_smem)."""
+    if threads_per_block <= 0:
+        return (0, "invalid_threads", 0, 0, 0, 0, 0)
+
+    warp_size = caps.get("warp_size", 32)
+    warps_per_block = (threads_per_block + warp_size - 1) // warp_size
+    if warps_per_block <= 0:
+        return (0, "invalid_warps", 0, 0, 0, 0, 0)
+
+    # per-block SMEM cap check
+    smem_cap = caps["smem_per_block_cap"]
+    if smem_per_block > smem_cap:
+        return (0, "smem_per_block_exceeds_cap", caps["max_blocks_per_sm"], 0, 0, 0, 0)
+
+    B_hw = caps["max_blocks_per_sm"]
+    B_threads = caps["max_threads_per_sm"] // threads_per_block
+    B_warps = caps["max_warps_per_sm"] // warps_per_block
+
+    regs_per_block = regs_per_thread * threads_per_block
+    B_regs = caps["max_regs_per_sm"] // regs_per_block if regs_per_block > 0 else 0
+
+    B_smem = caps["max_smem_per_sm"] // smem_per_block if smem_per_block > 0 else B_hw
+
+    limits = {
+        "B_smem": B_smem,
+        "B_regs": B_regs,
+        "B_warps": B_warps,
+        "B_threads": B_threads,
+        "B_hw": B_hw,
+    }
+
+    cta = min(limits.values())
+
+    # tie-breaking priority: smem -> regs -> warps -> threads -> hw
+    bottleneck = "unknown"
+    for k in ["B_smem", "B_regs", "B_warps", "B_threads", "B_hw"] :
+        if limits[k] == cta :
+            bottleneck = k
+            break
+
+    return (cta, bottleneck, B_hw, B_threads, B_warps, B_regs, B_smem)
+
+
+def make_tile_dict(list_tile_sizes, combined_tile_size=None):
+    """
+    list_tile_sizes의 원본 + combined_tile_size의 base key를
+    모두 포함하는 dict를 만든다.
+    combined에 'b'가 있고 list_tile_sizes에 'b1','b2'만 있으면
+    b1*b2를 'b'로 등록.
+    """
+    d = {k: int(v) for k, v in list_tile_sizes}
+
+    if combined_tile_size is None:
+        return d
+
+    for key, val in combined_tile_size:
+        key = str(key)
+        if key not in d:
+            # combined에는 있지만 tile_sizes에 없으면 combined 값을 직접 사용
+            d[key] = int(val)
+
+    return d
+
+def make_rep_dict(rep_problem_size):
+    return {k: int(v) for k, v in rep_problem_size}
+
+def build_tb_cover_vectorized(
+    tensor_idx_list, split_tile_size_dict, mapped_index_set,
+    fvi_tile_size, double2_flag, num_warp, data_type,
+    warp_shape,            # ← 추가: [warp_x, warp_y]
+    frag_x_idx,            # ← 추가: FRAG_X에 매핑된 index
+    frag_y_idx,            # ← 추가: FRAG_Y에 매핑된 index
+    WARP_THREAD_X=8,
+    WARP_THREAD_Y=4,
 ):
-    """
-    t2/v2에서 하던 방식과 동일하게,
-    - thread_layout_in_warp 계산
-    - warp_cover 계산
-    - mixed-radix로 warp_id마다 cover 확장해서 tb_cover_by_warp 생성
+    n_idx    = len(tensor_idx_list)
+    warp_ids = np.arange(num_warp, dtype=np.int32)
 
-    return:
-      tb_cover_by_warp: dict[warp_id] -> dict[idx] = cover_elems
-    """
+    warp_x = warp_shape[0]
+    warp_y = warp_shape[1]
 
-    # -------------------------
-    # 1) thread layout in warp
-    # -------------------------
+    if data_type == "DOUBLE":
+        vec_elems = 2 if double2_flag else 1
+    else:
+        if double2_flag == 2:
+            vec_elems = 4
+        elif double2_flag == 1:
+            vec_elems = 2
+        else:
+            vec_elems = 1
+
+    # ---- thread layout: warp_shape 반영 ----
     tmp = 1
-    thread_layout_in_warp = {}
-
+    thread_layout = {}
     for i, idx in enumerate(tensor_idx_list):
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, idx))
+        tile = int(split_tile_size_dict[idx])
 
         if tmp >= 32:
-            thread_layout_in_warp[idx] = 1
-        elif idx not in mapped_index:
-            thread_layout_in_warp[idx] = 0
+            thread_layout[idx] = 1
+        elif idx not in mapped_index_set:
+            thread_layout[idx] = 0
         else:
             if i == 0:
-                if double2_flag:
-                    # double2면 thread당 2elem이므로 "thread layout"은 절반으로 잡고
-                    # warp_cover에서 다시 *2 해주는 방식(t2/v2와 동일)
-                    thread_layout_in_warp[idx] = int(fvi_tile_size // 2)
-                    tmp *= int(fvi_tile_size // 2)
-                else:
-                    thread_layout_in_warp[idx] = int(fvi_tile_size)
-                    tmp *= int(fvi_tile_size)
+                # FVI 처리 (기존과 동일)
+                thread_layout[idx] = fvi_tile_size // vec_elems
+                tmp *= fvi_tile_size // vec_elems
             else:
-                rest = int(32 // tmp)
-                covered = int(min(rest, tile))
-                thread_layout_in_warp[idx] = covered
+                # ── warp_shape 반영 ──────────────────────────
+                if idx == frag_x_idx:
+                    # x 방향: warp_x개 warp × WARP_THREAD_X threads
+                    covered = min(tile, warp_x * WARP_THREAD_X)
+                elif idx == frag_y_idx:
+                    # y 방향: warp_y개 warp × WARP_THREAD_Y threads
+                    covered = min(tile, warp_y * WARP_THREAD_Y)
+                else:
+                    rest    = 32 // tmp
+                    covered = min(rest, tile)
+
+                thread_layout[idx] = covered
                 tmp *= covered
 
-    # -------------------------
-    # 2) warp cover
-    # -------------------------
-    warp_cover = {}
+    # ---- warp_cover_base 계산 ----
+    warp_cover_base = {}
     for i, idx in enumerate(tensor_idx_list):
-        if i == 0 and double2_flag:
-            warp_cover[idx] = int(thread_layout_in_warp[idx]) * 2
+        if i == 0:
+            warp_cover_base[idx] = thread_layout[idx] * vec_elems
         else:
-            warp_cover[idx] = int(thread_layout_in_warp[idx])
+            warp_cover_base[idx] = thread_layout[idx]
 
-    # -------------------------
-    # 3) mixed-radix 분해로 warp별 cover 확장
-    # -------------------------
-    mapped_in_tensor = [i for i in tensor_idx_list if i in mapped_index]
+    # ---- base_cover_arr: (n_idx,) ----
+    base_cover_arr = np.array(                          # ← 여기서 정의
+        [warp_cover_base[idx] for idx in tensor_idx_list], dtype=np.int32
+    )
 
+    # ---- mapped 차원의 tensor 내 위치 ----
+    mapped_in_tensor = [idx for idx in tensor_idx_list if idx in mapped_index_set]
+    mapped_dim_pos   = [tensor_idx_list.index(idx) for idx in mapped_in_tensor]  # ← 여기서 정의
+
+    # ---- radices 계산 ----
     radices = []
     for key in mapped_in_tensor:
-        base = int(warp_cover.get(key, 0))
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-        if base <= 0:
-            radix = 1
+        base = warp_cover_base.get(key, 0)
+        tile = split_tile_size_dict[key]
+        radices.append(1 if base <= 0 else max(1, math.ceil(tile / base)))
+
+    total_radix = 1
+    for r in radices:
+        total_radix *= r
+
+    repeat_factor      = max(1, math.ceil(total_radix / num_warp))
+    effective_num_warp = min(num_warp, total_radix)
+
+    # ---- warp별 cover/start 배열 초기화 ----
+    warp_start_arr = np.zeros((num_warp, n_idx), dtype=np.int32)
+    warp_cover_arr = np.tile(base_cover_arr, (num_warp, 1))  # (W, n_idx)
+
+    # ---- mixed-radix 분해 ----
+    x = warp_ids.copy()
+    for dim_pos, key, radix in zip(mapped_dim_pos, mapped_in_tensor, radices):
+        base = warp_cover_base.get(key, 0)
+        tile = int(split_tile_size_dict[key])
+        step = x % radix
+        x    = x // radix
+        if base > 0:
+            warp_begin         = (base * step).astype(np.int32)
+            warp_end           = np.minimum(base * (step + 1), tile).astype(np.int32)
+            warp_begin_clipped = np.minimum(warp_begin, tile)
+            actual_cover       = np.maximum(warp_end - warp_begin_clipped, 0)
+            warp_start_arr[:, dim_pos] = warp_begin_clipped
+            warp_cover_arr[:, dim_pos] = actual_cover
+
+    # total_radix < num_warp이면 초과 warp은 cover=0
+    if effective_num_warp < num_warp:
+        warp_cover_arr[effective_num_warp:, :] = 0
+
+    return warp_cover_arr, warp_start_arr, repeat_factor
+
+
+def warp_tx_vectorized_v2(
+    tensor_idx_list,
+    warp_cover_arr,
+    warp_start_arr,
+    tb_global_starts,
+    rep_arr,
+    vec_elems,
+    contig_elems,
+    tile_sizes_arr,      # ← 추가: np.array([tile_d[idx] for idx in tensor_idx_list])
+    elem_bytes=8,
+    cache_line_bytes=128,
+):
+    TB = tb_global_starts.shape[0]
+
+    tb_start = tb_global_starts[:, np.newaxis, :]
+    w_start  = warp_start_arr[np.newaxis, :, :]
+    w_cover  = warp_cover_arr[np.newaxis, :, :]
+    rep      = rep_arr[np.newaxis, np.newaxis, :]
+    tile     = tile_sizes_arr[np.newaxis, np.newaxis, :]  # ← 추가
+
+    global_start = tb_start + w_start
+
+    # ── 수정: cover=0(unmapped)이면 tile 전체를 읽는 것으로 처리 ──
+    # 기존: valid_c = clip(min(w_cover, rep - global_start), 0, None)
+    # 수정: unmapped 차원은 w_cover 대신 tile로 대체
+    is_unmapped  = (w_cover <= 0)                                   # (1, W, D) bool
+    cover_to_use = np.where(is_unmapped, tile, w_cover)            # (1, W, D)
+    valid_c      = np.clip(np.minimum(cover_to_use, rep - global_start), 0, None)
+
+    # unmapped 차원을 모든 warp이 동일하게 읽으므로
+    # warp 간 unique line 중복 제거: unmapped 차원이 있는 경우
+    # 해당 차원의 tx를 warp 수로 나눠서 1번만 카운트
+    # (모든 warp이 같은 라인을 읽으므로 실제 unique line은 동일)
+    any_unmapped = is_unmapped.any(axis=2)  # (1, W) → True인 warp은 unmapped 차원 보유
+
+    valid_elems = valid_c.prod(axis=2)  # (TB, W)
+
+    # ── unmapped 차원 중복 제거 ──
+    # unmapped 차원의 tile 크기 곱 = 모든 warp이 공통으로 읽는 부분
+    unmapped_tile_prod = np.where(is_unmapped, tile, 1).prod(axis=2)  # (1, W)
+    mapped_elems = np.where(
+        unmapped_tile_prod.squeeze(0) > 0,
+        valid_elems / unmapped_tile_prod.squeeze(0)[np.newaxis, :],
+        valid_elems
+    )  # (TB, W): mapped 차원만의 element 수
+
+    # cache line 계산은 valid_elems 전체 기준,
+    # 단 unmapped가 있는 warp은 1개 warp 기준으로만 카운트
+    elems_per_line     = cache_line_bytes // elem_bytes
+    lines_per_block    = max(1, math.ceil(contig_elems * elem_bytes / cache_line_bytes))
+    num_contig_blocks  = np.where(valid_elems > 0,
+                                  np.ceil(valid_elems / max(contig_elems, 1)), 0)
+    cache_lines        = num_contig_blocks * lines_per_block  # (TB, W)
+
+    # unmapped 차원이 있는 경우: 모든 warp이 동일 line → warp 0만 카운트
+    # warp 0 외의 warp에서 unmapped가 있으면 0으로 마스킹
+    num_warp = warp_cover_arr.shape[0]
+    if num_warp > 1:
+        unmapped_mask = any_unmapped.squeeze(0)  # (W,) bool
+        # warp 0은 항상 포함, warp 1+에서 unmapped이면 제거
+        duplicate_mask = np.zeros(num_warp, dtype=bool)
+        duplicate_mask[1:] = unmapped_mask[1:]
+        cache_lines[:, duplicate_mask] = 0
+
+    load_issues = np.where(valid_elems > 0,
+                           np.ceil(valid_elems / vec_elems), 0)
+    load_issues[:, duplicate_mask] = 0  # issue도 동일하게 중복 제거
+
+    tx_per_tb    = cache_lines.sum(axis=1).astype(np.float64)
+    issue_per_tb = load_issues.sum(axis=1).astype(np.float64)
+    return tx_per_tb, issue_per_tb
+
+
+def compute_contig_elems(tensor_idx_list, each_config, tile_d, rep_d):
+    """
+    GM4의 size_continuous_elements 계산 로직을 함수로 분리.
+    innermost부터 tile == rep_size인 동안 누적.
+    """
+    other_tensor = (each_config.list_tensor_B
+                    if tensor_idx_list is each_config.list_tensor_A
+                    else each_config.list_tensor_A)
+    other_set = set(other_tensor)
+
+    fvi_is_external = (tensor_idx_list[0] not in other_set)
+
+    contig = 1
+    is_cont = True
+    for idx in tensor_idx_list:
+        is_external = (idx not in other_set)
+        # FVI 타입과 같은 종류(외부/내부)인 차원만 연속성 체크
+        if is_external != fvi_is_external:
+            break
+        if is_cont:
+            contig *= tile_d[idx]
+            if tile_d[idx] != rep_d.get(idx, tile_d[idx]):
+                is_cont = False
         else:
-            radix = max(1, int(math.ceil(tile / base)))
-        radices.append(radix)
+            break
+    return max(1, contig)
 
-    tb_cover_by_warp = {}
-    for warp_id in range(int(num_warp)):
-        tb_cover_by_warp[warp_id] = warp_cover.copy()
-
-        x = int(warp_id)
-        for key, radix in zip(mapped_in_tensor, radices):
-            base = int(warp_cover.get(key, 0))
-            tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-
-            step = x % int(radix)
-            x //= int(radix)
-
-            if base <= 0:
-                tb_cover_by_warp[warp_id][key] = base
-            else:
-                tb_cover_by_warp[warp_id][key] = int(min(base * (step + 1), tile))
-
-    return tb_cover_by_warp
-
-def _max_penalty_for_bases(penalty_by_base, bases, num_TBs, base_floor=1.5):
+def compute_contig_elems_warp_aware(tensor_idx_list, warp_cover_arr, tile_d):
     """
-    bases: set/list of base strings
-    return: np.ndarray (num_TBs,) with max penalty across those bases, default base_floor
+    warp 0 기준으로 innermost부터 연속 접근 element 수 계산.
+    - unmapped(cover=0): tile 전체가 연속
+    - mapped이고 cover==tile: 전체 커버 → 연속
+    - mapped이고 cover<tile: 여기서 끊김
     """
-    arrs = []
-    for b in bases:
-        a = penalty_by_base.get(b, None)
-        if a is not None:
-            arrs.append(a.astype(np.float32, copy=False))
-    if not arrs:
-        return np.full(num_TBs, base_floor, dtype=np.float32)
-    M = np.stack(arrs, axis=0)  # (B, num_TBs)
-    out = M.max(axis=0)
-    # 기본값(1.5) 보장
-    out = np.maximum(out, np.float32(base_floor))
-    return out
+    contig = 1
+    for i, idx in enumerate(tensor_idx_list):
+        cover_i = int(warp_cover_arr[0, i])   # warp 0 기준
+        tile_i  = tile_d[idx]
+        if cover_i <= 0:
+            contig *= tile_i      # unmapped: 전체 연속
+        elif cover_i >= tile_i:
+            contig *= tile_i      # 전체 커버
+        else:
+            contig *= cover_i     # 부분 커버 → 끊김
+            break
+    return max(1, contig)
 
-def _reg_valid_product(penalty_by_base, reg_bases_in_out, num_TBs):
+
+def compute_store_cost_warp_aware(each_config, tile_d, num_warp, num_TBs,
+                                   elem_bytes=8, line_bytes=128):
     """
-    reg_valid[tb] = Π_b clip(2 - penalty[b][tb], 0, 1)
-    """
-    arrs = []
-    for b in reg_bases_in_out:
-        a = penalty_by_base.get(b, None)
-        if a is None:
-            continue
-        # valid = clip(2 - p, 0, 1)
-        v = np.clip(2.0 - a.astype(np.float32, copy=False), 0.0, 1.0)
-        arrs.append(v)
-    if not arrs:
-        return np.ones(num_TBs, dtype=np.float32)
-    V = np.stack(arrs, axis=0)  # (R, num_TBs)
-    return V.prod(axis=0)
-
-# -----------------------------
-# Integrated main function
-# -----------------------------
-def tc_gen_cost_full_partial2(each_config):
-    # ---- 0) (idx, tile) 순서 고정 ----
-    idx_tile_list = list(reversed(each_config.combined_tile_size))  # [(idx, tile), ...]
-    config_len = len(idx_tile_list)
-
-    mapped_index = (
-        [(each_config.list_FRAG_X)[0]] +
-        [(each_config.list_FRAG_Y)[0]] +
-        [(each_config.list_FRAG_K)[0]] +
-        each_config.list_REG_X +
-        each_config.list_REG_Y
-    )
-
-    # ---- 1) num_tb_each_idx 계산 + idx 이름도 같이 보관 ----
-    num_tb_each_idx = []
-    idx_names = []
-    tile_sizes = []
-    rep_sizes = []
-    idx_index = []
-
-    for i, (idx, tile_size) in enumerate(idx_tile_list):
-        size_i = int(tc_helper.tc_helper_find_value(each_config.list_representative_problem_size, idx))
-        nblk_i = int(math.ceil(size_i / int(tile_size)))
-
-        idx_names.append(idx)
-        idx_index.append([i, idx[0]])
-        tile_sizes.append(int(tile_size))
-        rep_sizes.append(int(size_i))
-        num_tb_each_idx.append(nblk_i)
-
-    # ---- 2) TB 개수 검증 ----
-    prod_num_tbs = int(np.prod(num_tb_each_idx)) if config_len > 0 else 0
-    if prod_num_tbs != int(each_config.num_TBs):
-        print(f"[WARN] product(num_tb_each_idx)={prod_num_tbs} != each_config.num_TBs={each_config.num_TBs}")
-        raise ValueError("num_TBs mismatch")
-
-    # ---- 3) linear blockIdx -> multi-dim blk_idx ----
-    bidx = np.arange(int(each_config.num_TBs), dtype=np.int64)
-    blk_idx_cols = []
-
-    for i in range(config_len):
-        stride = int(np.prod(num_tb_each_idx[i + 1:])) if (i + 1) < config_len else 1
-        blk_i = bidx // stride
-        blk_idx_cols.append(blk_i)
-        bidx = bidx % stride
-
-    blk_idx = np.stack(blk_idx_cols, axis=1)  # (num_TBs, config_len)
-
-    # ------------------------------------------------------------
-    # Split-aware partial penalty (TB별, base index 기준)
-    # ------------------------------------------------------------
-    # rep_size_dict: base index 크기 딕셔너리 (a1/a2의 base는 'a'로 들어있어야 함)
-    rep_size_dict = {}
-    for k, v in each_config.list_representative_problem_size:
-        rep_size_dict[str(k)] = int(v)
-
-    penalty_by_base = build_tb_partial_penalty_split_aware(
-        blk_idx=blk_idx,
-        idx_names=idx_names,
-        tile_sizes=tile_sizes,
-        rep_size_dict=rep_size_dict
-    )
-
-    # ------------------------------------------------------------
-    # 텐서/타일/warp 구성
-    # ------------------------------------------------------------
-    t2 = each_config.list_tensor_A
-    v2 = each_config.list_tensor_B
-    t3 = each_config.list_tensor_C
-    split_tile_size = each_config.list_tile_sizes
-
-    num_warp = (each_config.size_FRAG_X * each_config.size_FRAG_Y) // 32
-
-    t2_mapped_index = [i for i in t2 if i in mapped_index]
-    v2_mapped_index = [i for i in v2 if i in mapped_index]
-
-    #
-    per_loop_load_t2 = 1
-    for i, idx in enumerate(t2) :
-        per_loop_load_t2 *= tc_helper.tc_helper_find_value(split_tile_size, idx)
+    store_matrix_sync 1회:
+      8×8 fragment
+      frag_x(a) 방향: 8 elems × 8 bytes = 64B 연속
+      frag_y 방향: row 간 stride → 각 row가 독립적인 cache line 접근
+      → 1 row = 64B = 128B cache line 1개 (절반만 사용)
+      → 8 rows = 8 cache lines per store_matrix_sync
     
-    #
-    per_loop_load_v2 = 1
-    for i, idx in enumerate(v2) :
-        per_loop_load_v2 *= tc_helper.tc_helper_find_value(split_tile_size, idx)
+    load cost와 동일하게 128B cache line 수로 표현
+    """
+    warp_shape_x = each_config.warp_shape[0]
+    warp_shape_y = each_config.warp_shape[1]
 
-    # FVI tile sizes
-    t2_fvi_tile_size = int(tc_helper.tc_helper_find_value(split_tile_size, t2[0]))
-    v2_fvi_tile_size = int(tc_helper.tc_helper_find_value(split_tile_size, v2[0]))
+    size_REG_X = 1
+    for idx in each_config.list_REG_X:
+        size_REG_X *= tile_d[idx]
+    size_REG_Y = 1
+    for idx in each_config.list_REG_Y:
+        size_REG_Y *= tile_d[idx]
 
-    # double2 flags
-    double2_flag = each_config.double2_flag
-    if t3[0] in t2:
-        t2_double2_flag = bool(double2_flag[0])
-        v2_double2_flag = bool(double2_flag[1])
+    size_FRAG_X = each_config.size_FRAG_X
+    size_FRAG_Y = each_config.size_FRAG_Y
+
+    # ---- 1 warp당 fragment 개수 ----
+    frags_reg_x  = size_REG_X  // warp_shape_x
+    frags_reg_y  = size_REG_Y  // warp_shape_y
+
+    if elem_bytes == 8 :
+        frags_frag_x = size_FRAG_X // 8
+        frags_frag_y = size_FRAG_Y // 8
+    else :
+        frags_frag_x = size_FRAG_X // 16
+        frags_frag_y = size_FRAG_Y // 16
+    frags_per_warp = frags_reg_x * frags_reg_y * frags_frag_x * frags_frag_y
+
+    # ---- store_matrix_sync 1회당 cache line 수 ----
+    # frag_y 방향 stride로 인해 각 row가 독립적인 cache line 접근
+    # 1 row = 8 elems × 8 bytes = 64B → 128B line 1개 (절반 사용)
+    if elem_bytes == 8 :
+        rows_per_frag = 8
+        cols_per_frag = 8
+    else :
+        rows_per_frag = 16
+        cols_per_frag = 16
+
+    row_bytes          = cols_per_frag * elem_bytes                          # = 64B
+    lines_per_row      = math.ceil(row_bytes / line_bytes)       # = 1
+    lines_per_call     = rows_per_frag * lines_per_row           # = 8
+
+    # ---- 1 TB 총 store cache line 수 ----
+    store_lines_per_tb = frags_per_warp * lines_per_call * num_warp
+    store_lines_total  = store_lines_per_tb * num_TBs
+
+    return float(store_lines_total), float(store_lines_per_tb)
+
+
+def compute_cost_with_pipeline(
+    total_load_tx, cost_store,
+    tx_per_loop, mma_per_loop, stage,
+    smem_per_stage_bytes, cta_per_sm_at_stage1,
+    max_smem_per_sm, warps_per_tb, idx,
+    issue_interval=4.0,
+    consts=PIPELINE_CONSTS, 
+):
+    S = max(1, min(stage, consts['stage_cap']))
+
+    # ── smem → occupancy ──────────────────────────────
+    smem_total  = smem_per_stage_bytes * S
+    cta_limited = (max_smem_per_sm // smem_total) if smem_total > 0 else cta_per_sm_at_stage1
+    cta_actual  = min(cta_per_sm_at_stage1, cta_limited)
+    occ_ratio   = cta_actual / max(cta_per_sm_at_stage1, 1)
+
+    # ── 1 loop당 시간 ─────────────────────────────────
+    tx_per_warp = tx_per_loop / max(warps_per_tb, 1)
+    T_mem_loop  = tx_per_warp  * consts['mem_lat_cycles']
+    T_comp_loop = mma_per_loop * consts['mma_lat_cycles']
+
+    if T_mem_loop <= 0:
+        return cost_store, 0.0
+
+    # ── arithmetic intensity 반영 ─────────────────────
+    # rho = T_mem / T_comp: 1보다 크면 memory bound, 작으면 compute bound
+    # rho가 작을수록 pipeline hiding 효과가 큼
+    rho = T_mem_loop / T_comp_loop
+
+    # ── stage hiding 비율 ─────────────────────────────
+    # S-1번의 compute로 hide 가능:
+    # rho <= 1/(S-1)이면 완전 hide 가능
+    # rho가 클수록 hide 비율 감소
+    if S > 1:
+        max_hide_by_stage = min(1.0, (S - 1) / max(rho, 1e-6)) * occ_ratio
     else:
-        t2_double2_flag = bool(double2_flag[1])
-        v2_double2_flag = bool(double2_flag[0])
+        max_hide_by_stage = 0.0
+    stage_hide_frac = min(max_hide_by_stage, 1.0)
 
-    # -------------------------
-    # t2 thread layout in warp
-    # -------------------------
-    tmp = 1
-    t2_thread_layout_in_warp = {}
-    for i, idx in enumerate(t2):
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, idx))
+    # ── warp hiding 비율 ──────────────────────────────
+    active_warps   = cta_actual * warps_per_tb
+    T_warp_hide    = max(0.0, active_warps - 1) * issue_interval
+    warp_hide_frac = min(0.5, T_warp_hide / max(T_mem_loop, 1.0))
 
-        if tmp >= 32:
-            t2_thread_layout_in_warp[idx] = 1
-        elif idx not in mapped_index:
-            t2_thread_layout_in_warp[idx] = 0
-        else:
-            if i == 0:
-                if t2_double2_flag:
-                    t2_thread_layout_in_warp[idx] = t2_fvi_tile_size // 2
-                    tmp *= (t2_fvi_tile_size // 2)
-                else:
-                    t2_thread_layout_in_warp[idx] = t2_fvi_tile_size
-                    tmp *= t2_fvi_tile_size
-            else:
-                rest = 32 // tmp
-                covered = min(rest, tile)
-                t2_thread_layout_in_warp[idx] = covered
-                tmp *= covered
+    # ── 전체 hiding ───────────────────────────────────
+    total_hide_frac = min(stage_hide_frac + warp_hide_frac, 1.0)
 
-    t2_warp_cover = {}
-    for i, idx in enumerate(t2):
-        if i == 0 and t2_double2_flag:
-            t2_warp_cover[idx] = t2_thread_layout_in_warp[idx] * 2
-        else:
-            t2_warp_cover[idx] = t2_thread_layout_in_warp[idx]
+    # ── bandwidth floor ───────────────────────────────
+    # rho가 작을수록(compute bound에 가까울수록) floor를 낮게 설정
+    # → compute bound kernel은 memory가 거의 완전히 hide됨
+    # rho >= 1: memory bound → floor = 0.15
+    # rho << 1: compute bound → floor ≈ 0
+    BANDWIDTH_FLOOR = max(0.05, min(0.15, rho * 0.15))
+    total_hide_frac = min(total_hide_frac, 1.0 - BANDWIDTH_FLOOR)
 
-    # t2: mixed-radix -> warp cover within TB
-    t2_radices = []
-    for key in t2_mapped_index:
-        base = t2_warp_cover.get(key, 0)
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-        radix = 1 if base <= 0 else max(1, int(math.ceil(tile / base)))
-        t2_radices.append(radix)
+    mem_efficiency    = 1.0 - total_hide_frac
+    effective_load_tx = total_load_tx * mem_efficiency
+    total_cost        = effective_load_tx + cost_store
 
-    t2_tb_cover = {}
-    for warp_id in range(num_warp):
-        t2_tb_cover[warp_id] = t2_warp_cover.copy()
-        x = warp_id
-        for key, radix in zip(t2_mapped_index, t2_radices):
-            base = t2_warp_cover.get(key, 0)
-            tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-            step = x % radix
-            x //= radix
-            if base <= 0:
-                t2_tb_cover[warp_id][key] = base
-            else:
-                t2_tb_cover[warp_id][key] = min(base * (step + 1), tile)
-
-    # -------------------------
-    # v2 thread layout in warp
-    # -------------------------
-    tmp = 1
-    v2_thread_layout_in_warp = {}
-    for i, idx in enumerate(v2):
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, idx))
-
-        if tmp >= 32:
-            v2_thread_layout_in_warp[idx] = 1
-        elif idx not in mapped_index:
-            v2_thread_layout_in_warp[idx] = 0
-        else:
-            if i == 0:
-                if v2_double2_flag:
-                    v2_thread_layout_in_warp[idx] = v2_fvi_tile_size // 2
-                    tmp *= (v2_fvi_tile_size // 2)
-                else:
-                    v2_thread_layout_in_warp[idx] = v2_fvi_tile_size
-                    tmp *= v2_fvi_tile_size
-            else:
-                rest = 32 // tmp
-                covered = min(rest, tile)
-                v2_thread_layout_in_warp[idx] = covered
-                tmp *= covered
-
-    v2_warp_cover = {}
-    for i, idx in enumerate(v2):
-        if i == 0 and v2_double2_flag:
-            v2_warp_cover[idx] = v2_thread_layout_in_warp[idx] * 2
-        else:
-            v2_warp_cover[idx] = v2_thread_layout_in_warp[idx]
-
-    # v2: mixed-radix -> warp cover within TB
-    v2_radices = []
-    for key in v2_mapped_index:
-        base = v2_warp_cover.get(key, 0)
-        tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-        radix = 1 if base <= 0 else max(1, int(math.ceil(tile / base)))
-        v2_radices.append(radix)
-
-    v2_tb_cover = {}
-    for warp_id in range(num_warp):
-        v2_tb_cover[warp_id] = v2_warp_cover.copy()
-        x = warp_id
-        for key, radix in zip(v2_mapped_index, v2_radices):
-            base = v2_warp_cover.get(key, 0)
-            tile = int(tc_helper.tc_helper_find_value(split_tile_size, key))
-            step = x % radix
-            x //= radix
-            if base <= 0:
-                v2_tb_cover[warp_id][key] = base
-            else:
-                v2_tb_cover[warp_id][key] = min(base * (step + 1), tile)
-
-    # ------------------------------------------------------------
-    # Transaction cost 계산 (split-aware partial 반영 + contraction loop 반영)
-    # ------------------------------------------------------------
-    # 1) contraction loop 반복 횟수
-    internal_indices = infer_internal_indices(t2, v2, t3)
-    inner_iters = num_inner_iters(internal_indices, split_tile_size, each_config.list_representative_problem_size)
-
-    # 2) 텐서별 "load에 관여하는 base" (split child -> base로 묶임)
-    t2_load_bases = tensor_load_bases(t2, t2_tb_cover, mapped_index)
-    v2_load_bases = tensor_load_bases(v2, v2_tb_cover, mapped_index)
-
-    # 3) base tx (TB마다 동일하다고 근사: warp 분배는 TB 내부 구조로 동일)
-    t2_vec = 2 if t2_double2_flag else 1
-    v2_vec = 2 if v2_double2_flag else 1
-
-    t2_base_tx_per_tb = warp_transactions_for_tensor(t2, t2_tb_cover, vec_elems=t2_vec)
-    v2_base_tx_per_tb = warp_transactions_for_tensor(v2, v2_tb_cover, vec_elems=v2_vec)
-    repeat_t2 = tb_repeat_factor(per_loop_load_t2, num_warp, t2_double2_flag)
-    repeat_v2 = tb_repeat_factor(per_loop_load_v2, num_warp, v2_double2_flag)
-
-    # 4) TB별 penalty 적용
-    # num_TBs = int(each_config.num_TBs)
-    # t2_tx_cost_tb = np.zeros(num_TBs, dtype=np.float64)
-    # v2_tx_cost_tb = np.zeros(num_TBs, dtype=np.float64)
-    # t2_tx_cost_tb_per_loop = np.zeros(num_TBs, dtype=np.float64)
-    # v2_tx_cost_tb_per_loop = np.zeros(num_TBs, dtype=np.float64)
-
-    # for tb in range(num_TBs):
-    #     # "하나라도 partial이면 2배"에 가장 가까운 동작: max penalty 사용
-    #     t2_pen = 1.5
-    #     for b in t2_load_bases:
-    #         if b in penalty_by_base:
-    #             t2_pen = max(t2_pen, float(penalty_by_base[b][tb]))
-
-    #     v2_pen = 1.5
-    #     for b in v2_load_bases:
-    #         if b in penalty_by_base:
-    #             v2_pen = max(v2_pen, float(penalty_by_base[b][tb]))
-
-    #     t2_tx_cost_tb[tb] = t2_base_tx_per_tb * t2_pen * inner_iters * repeat_t2
-    #     v2_tx_cost_tb[tb] = v2_base_tx_per_tb * v2_pen * inner_iters * repeat_v2
-
-    #     t2_tx_cost_tb_per_loop[tb] = t2_base_tx_per_tb * t2_pen * repeat_t2
-    #     v2_tx_cost_tb_per_loop[tb] = v2_base_tx_per_tb * v2_pen * repeat_v2
-
-    # t2_total_tx_cost = float(t2_tx_cost_tb.sum())
-    # v2_total_tx_cost = float(v2_tx_cost_tb.sum())
-    # # mean_t2_per_loop_tx = float(t2_tx_cost_tb_per_loop.mean())
-    # # mean_v2_per_loop_tx = float(v2_tx_cost_tb_per_loop.mean())
-
-    # total_tx_cost = t2_total_tx_cost + v2_total_tx_cost
-
-    # #
-    # each_config.partial_total_cost_d2 = total_tx_cost + each_config.cost_store_output_d2
-    # each_config.partial_load_a_cost_d2 = t2_total_tx_cost
-    # each_config.partial_load_b_cost_d2 = v2_total_tx_cost
-    # each_config.partial_load_a_cost_tb_d2 = t2_tx_cost_tb
-    # each_config.partial_load_b_cost_tb_d2 = v2_tx_cost_tb
+    return total_cost, mem_efficiency
 
 
-    # --- t2/v2 penalty (vectorized) ---
-    num_TBs = int(each_config.num_TBs)
-    t2_pen_vec = _max_penalty_for_bases(penalty_by_base, t2_load_bases, num_TBs, base_floor=1.5)
-    v2_pen_vec = _max_penalty_for_bases(penalty_by_base, v2_load_bases, num_TBs, base_floor=1.5)
-
-    # tx cost per TB (vectorized)
-    t2_tx_cost_tb = (t2_base_tx_per_tb * t2_pen_vec * inner_iters * repeat_t2).astype(np.float64)
-    v2_tx_cost_tb = (v2_base_tx_per_tb * v2_pen_vec * inner_iters * repeat_v2).astype(np.float64)
-
-    t2_tx_cost_tb_per_loop = (t2_base_tx_per_tb * t2_pen_vec * repeat_t2).astype(np.float64)
-    v2_tx_cost_tb_per_loop = (v2_base_tx_per_tb * v2_pen_vec * repeat_v2).astype(np.float64)
-
-    t2_total_tx_cost = float(t2_tx_cost_tb.sum())
-    v2_total_tx_cost = float(v2_tx_cost_tb.sum())
-    total_tx_cost = t2_total_tx_cost + v2_total_tx_cost
-
-    # 기존 each_config 저장 (그대로)
-    each_config.partial_load_a_cost_d2 = t2_total_tx_cost
-    each_config.partial_load_b_cost_d2 = v2_total_tx_cost
-    each_config.partial_load_a_cost_tb_d2 = t2_tx_cost_tb
-    each_config.partial_load_b_cost_tb_d2 = v2_tx_cost_tb
-    
-    # --- t2/v2 penalty (vectorized) ---
-    frag_x = (each_config.list_FRAG_X)[0]
-    frag_y = (each_config.list_FRAG_Y)[0]
-
-    # combined_tile_size는 base 형태라 했으니 base_name은 그냥 str로 충분
-    frag_x_b = str(frag_x)
-    frag_y_b = str(frag_y)
-
-    # output tile element 수
-    size_output_TB = 1
-    for each_idx in each_config.list_tensor_C:
-        size_output_TB *= int(tc_helper.tc_helper_find_value(each_config.list_tile_sizes, each_idx))
-
-    repeat_store = int(math.ceil(size_output_TB / float(num_warp * 32)))
-
-    # REG base들 (output에 실제로 들어간 것만)
-    reg_bases = set(str(x) for x in (each_config.list_REG_X + each_config.list_REG_Y))
-    out_bases = set(str(x) for x in each_config.list_tensor_C)
-    reg_bases_in_out = [b for b in reg_bases if b in out_bases]
-
-    # output store에 관여하는 base들(원하면 out_bases 전체 쓰면 됨)
-    # 여기서는 store penalty max를 out_bases 전체로 적용
-    store_bases_for_pen = out_bases
-
-    # TB별 store cost 배열
-    store_cost_tb_d2 = np.zeros(num_TBs, dtype=np.float64)
-
-    # store_matrix_sync base tx (TB 내부 구조가 동일하다고 보고 TB당 동일한 base tx로 근사)
-    # -> "한 번 store issue에서" tx proxy. (load에서 쓰던 warp_transactions_for_tensor를 재사용)
-    # output에서도 같은 tb_cover를 만들고 싶으면 아래처럼:
-    out_fvi_tile_size = int(tc_helper.tc_helper_find_value(split_tile_size, t3[0]))
-    t3_tb_cover = build_tb_cover_for_tensor_base_method(
-        tensor_idx_list=t3,
-        split_tile_size=split_tile_size,
-        mapped_index=mapped_index,
-        fvi_tile_size=out_fvi_tile_size,
-        double2_flag=0,
-        num_warp=num_warp
+def tc_gen_cost_model_v2(each_config, l_comb, idx, data_type) :
+    # ---- 0) 사전 dict 변환 (함수당 1회) ----
+    tile_d = make_tile_dict(each_config.list_tile_sizes, each_config.combined_tile_size)
+    rep_d  = make_rep_dict(each_config.list_representative_problem_size)
+    mapped_set = set(
+        [each_config.list_FRAG_X[0], each_config.list_FRAG_Y[0], each_config.list_FRAG_K[0]]
+        + each_config.list_REG_X + each_config.list_REG_Y
     )
-    store_base_tx_per_tb = float(warp_transactions_for_tensor(t3, t3_tb_cover, vec_elems=1))
 
-    # for tb in range(num_TBs):
-    #     # (A) 일반 store penalty: 원래 방식(max), 기본 1.5
-    #     store_pen = 1.5
-    #     for b in store_bases_for_pen:
-    #         if b in penalty_by_base:
-    #             store_pen = max(store_pen, float(penalty_by_base[b][tb]))
-
-    #     # (B) FRAG partial이면 store 2배
-    #     frag_factor = 1.0
-    #     if (frag_x_b in penalty_by_base and float(penalty_by_base[frag_x_b][tb]) > 1.0) or \
-    #        (frag_y_b in penalty_by_base and float(penalty_by_base[frag_y_b][tb]) > 1.0):
-    #         frag_factor = 2.0
-
-    #     # (C) REG partial이면 해당 fragment store skip -> 저장량 감소
-    #     #     (여러 reg 축이 있으면 "곱"으로 근사. 과도하면 min으로 바꿔도 됨)
-    #     reg_valid = 1.0
-    #     for b in reg_bases_in_out:
-    #         if b in penalty_by_base:
-    #             p = float(penalty_by_base[b][tb])
-    #             # penalty=1이면 full, penalty=2이면 완전 partial -> valid를 0.5로 근사
-    #             # split-aware penalty(1~2)면 valid = 2 - p (p=1->1, p=2->0)
-    #             valid = max(0.0, min(1.0, 2.0 - p))
-    #             reg_valid *= valid
-
-    #     # store는 보통 TB당 1번(내부 K-loop와 무관)
-    #     store_cost_tb_d2[tb] = store_base_tx_per_tb * store_pen * repeat_store * frag_factor * reg_valid
-
-    # cost_store_output_d2 = float(store_cost_tb_d2.sum())
-
-    # --- TB별 store cost (vectorized) ---
-
-    # (A) store_pen_vec: TB별 max penalty (floor=1.5)
-    store_pen_vec = np.full(num_TBs, 1.5, dtype=np.float64)
-    for b in store_bases_for_pen:
-        arr = penalty_by_base.get(b, None)
-        if arr is None:
-            continue
-        store_pen_vec = np.maximum(store_pen_vec, np.asarray(arr, dtype=np.float64))
-
-    # (B) frag_factor_vec: frag_x 또는 frag_y가 partial(>1)면 2배
-    frag_partial = np.zeros(num_TBs, dtype=bool)
-
-    px = penalty_by_base.get(frag_x_b, None)
-    if px is not None:
-        frag_partial |= (np.asarray(px, dtype=np.float64) > 1.0)
-
-    py = penalty_by_base.get(frag_y_b, None)
-    if py is not None:
-        frag_partial |= (np.asarray(py, dtype=np.float64) > 1.0)
-
-    frag_factor_vec = np.where(frag_partial, 2.0, 1.0).astype(np.float64)
-
-    # (C) reg_valid_vec: ∏ clamp(2 - p, 0..1)
-    reg_valid_vec = np.ones(num_TBs, dtype=np.float64)
-    for b in reg_bases_in_out:
-        arr = penalty_by_base.get(b, None)
-        if arr is None:
-            continue
-        p = np.asarray(arr, dtype=np.float64)
-        valid = np.clip(2.0 - p, 0.0, 1.0)
-        reg_valid_vec *= valid
-
-    # 최종 store cost TB별 벡터
-    store_cost_tb_d2 = (
-        float(store_base_tx_per_tb)
-        * store_pen_vec
-        * float(repeat_store)
-        * frag_factor_vec
-        * reg_valid_vec
-    ).astype(np.float64)
-
-    cost_store_output_d2 = float(store_cost_tb_d2.sum())
-
-    #
-    # tx = (mean_t2_per_loop_tx + mean_v2_per_loop_tx) / 2.0
-    tx = float((t2_tx_cost_tb_per_loop + v2_tx_cost_tb_per_loop).sum())
-    each_config.partial_transaction_per_loop = tx
-    mma = each_config.flops_per_loop * each_config.num_TBs
-    stg = each_config.stage
-    stg_eff = max(1, min(stg, 5))
-    stage_scale = np.sqrt(stg_eff)
-
-    # time proxy
-    mma_lat_cycles  = 16.0
-    mem_line_cycles = 350.0
-    T_mem = tx * float(mem_line_cycles)
-    T_comp = mma * float(mma_lat_cycles)
-
-    # stage overlap 반영
-    T_mem_eff = T_mem / float(stage_scale)
-
-    # clip/floor
-    exposed_floor   = 0.01
-    exposed_ceiling = 1.0
-    exposed = T_mem_eff / (T_mem_eff + T_comp)
-    exposed = max(exposed_floor, min(exposed_ceiling, exposed))
+    t2, v2, t3 = each_config.list_tensor_A, each_config.list_tensor_B, each_config.list_tensor_C
     
-    # total cost 업데이트 (store 바뀌었으니 갱신)
-    each_config.partial_overlap_frac = 1.0 - exposed
-    each_config.t2_total_tx_cost = t2_total_tx_cost
-    each_config.v2_total_tx_cost = v2_total_tx_cost
-    each_config.partial_total_cost_d2 = total_tx_cost + cost_store_output_d2
-    each_config.partial_total_cost_d2_overlap = math.ceil(total_tx_cost * exposed + cost_store_output_d2)
+    if data_type == "DOUBLE" :
+        num_warp = (each_config.size_FRAG_X * each_config.size_FRAG_Y) // 32
+    else :
+        num_warp = (each_config.size_FRAG_X * each_config.size_FRAG_Y) // 64
 
-    
+    num_TBs  = int(each_config.num_TBs)
+
+    if t3[0] in t2 :
+        t2_double2 = each_config.double2_flag[0]
+        v2_double2 = each_config.double2_flag[1]
+    else :
+        t2_double2 = each_config.double2_flag[1]
+        v2_double2 = each_config.double2_flag[0]
+
+    # ---- 1) warp cover/start 배열 계산 (vectorized) ----
+    frag_x_idx = each_config.list_FRAG_X[0]
+    frag_y_idx = each_config.list_FRAG_Y[0]
+    warp_shape = each_config.warp_shape          # [warp_x, warp_y]
+
+    t2_cover, t2_start, t2_repeat = build_tb_cover_vectorized(
+        t2, tile_d, mapped_set, tile_d[t2[0]], t2_double2, num_warp, data_type,
+        warp_shape=warp_shape,
+        frag_x_idx=frag_x_idx,
+        frag_y_idx=frag_y_idx,
+    )
+    v2_cover, v2_start, v2_repeat = build_tb_cover_vectorized(
+        v2, tile_d, mapped_set, tile_d[v2[0]], v2_double2, num_warp, data_type,
+        warp_shape=warp_shape,
+        frag_x_idx=frag_x_idx,
+        frag_y_idx=frag_y_idx,
+    )
+
+    # ---- 2) TB 시작 좌표 행렬 (기존 blk_idx 로직, 이미 numpy) ----
+    idx_tile_list = list(reversed(each_config.combined_tile_size))
+    idx_names     = [x[0] for x in idx_tile_list]
+    tile_arr      = np.array([tile_d[x[0]] for x in idx_tile_list], dtype=np.int64)
+    rep_arr_full  = np.array([rep_d[x[0]]  for x in idx_tile_list], dtype=np.int64)
+    num_tb_each   = np.ceil(rep_arr_full / tile_arr).astype(np.int64)
+    n_idx         = len(idx_tile_list)
+
+    bidx = np.arange(num_TBs, dtype=np.int64)
+    blk_cols = []
+    for i in range(n_idx):
+        stride = int(num_tb_each[i+1:].prod()) if i + 1 < n_idx else 1
+        blk_cols.append(bidx // stride)
+        bidx = bidx % stride
+    blk_idx = np.stack(blk_cols, axis=1)           # (TB, D)
+    tb_global_starts = (blk_idx * tile_arr).astype(np.int64)  # (TB, D)
+
+    # ---- 3) tensor별 rep_arr 슬라이스 (차원 순서 맞추기) ----
+    def rep_for_tensor(tensor_idx_list):
+        return np.array([rep_d[idx] for idx in tensor_idx_list], dtype=np.int64)
+
+    def tb_starts_for_tensor(tensor_idx_list):
+        """(TB, D_tensor) — 해당 텐서의 인덱스 순서로 tb_global_starts 슬라이스"""
+        col_map = {name: i for i, name in enumerate(idx_names)}
+        cols = [col_map[idx] for idx in tensor_idx_list if idx in col_map]
+        if not cols:
+            return np.zeros((num_TBs, len(tensor_idx_list)), dtype=np.int64)
+        result = np.zeros((num_TBs, len(tensor_idx_list)), dtype=np.int64)
+        for out_i, idx in enumerate(tensor_idx_list):
+            if idx in col_map:
+                result[:, out_i] = tb_global_starts[:, col_map[idx]]
+        return result
+
+    # ---- 4) warp-aware tx 계산 (vectorized) ----
+    internal_indices = infer_internal_indices(t2, v2, t3)
+    inner_iters = num_inner_iters(internal_indices, each_config.list_tile_sizes, each_config.list_representative_problem_size)
+
+    if data_type == "DOUBLE" :
+        t2_vec = 2 if t2_double2 else 1
+        v2_vec = 2 if v2_double2 else 1
+    else :
+        if t2_double2 == 2 :
+            t2_vec = 4
+        elif t2_double2 == 1 :
+            t2_vec = 2
+        else :
+            t2_vec = 1
+        
+        if v2_double2 == 2 :
+            v2_vec = 4
+        elif v2_double2 == 1 :
+            v2_vec = 2
+        else :
+            v2_vec = 1
+
+    t2_contig = compute_contig_elems_warp_aware(t2, t2_cover, tile_d)
+    v2_contig = compute_contig_elems_warp_aware(v2, v2_cover, tile_d)
+
+    t2_tile_arr = np.array([tile_d[idx] for idx in t2], dtype=np.int64)
+    v2_tile_arr = np.array([tile_d[idx] for idx in v2], dtype=np.int64)
+
+    t2_tx_per_tb, t2_issue_per_tb = warp_tx_vectorized_v2(
+        t2, t2_cover, t2_start,
+        tb_starts_for_tensor(t2), rep_for_tensor(t2),
+        vec_elems=t2_vec,
+        contig_elems=t2_contig,
+        tile_sizes_arr=t2_tile_arr,   # ← 추가
+    )
+    v2_tx_per_tb, v2_issue_per_tb = warp_tx_vectorized_v2(
+        v2, v2_cover, v2_start,
+        tb_starts_for_tensor(v2), rep_for_tensor(v2),
+        vec_elems=v2_vec,
+        contig_elems=v2_contig,
+        tile_sizes_arr=v2_tile_arr,   # ← 추가
+    )
+
+    t2_tx_total   = float((t2_tx_per_tb * inner_iters * t2_repeat).sum())
+    v2_tx_total   = float((v2_tx_per_tb * inner_iters * v2_repeat).sum())
+    total_load_tx = t2_tx_total + v2_tx_total
+
+    # issue도 동일하게
+    t2_issue_total   = float((t2_issue_per_tb * inner_iters * t2_repeat).sum())
+    v2_issue_total   = float((v2_issue_per_tb * inner_iters * v2_repeat).sum())
+    total_load_issue = t2_issue_total + v2_issue_total
+
+    # tx_per_loop도 repeat 반영
+    tx_per_loop_bw    = float((t2_tx_per_tb * t2_repeat + v2_tx_per_tb * v2_repeat).mean())
+    tx_per_loop_issue = float((t2_issue_per_tb * t2_repeat + v2_issue_per_tb * v2_repeat).mean())
+
+    ISSUE_TO_LINE_RATIO = PIPELINE_CONSTS['issue_lat_cycles'] / PIPELINE_CONSTS['mem_lat_cycles']
+    tx_per_loop = max(tx_per_loop_bw, tx_per_loop_issue * ISSUE_TO_LINE_RATIO)
+
+    if data_type == "DOUBLE" :
+        elem_byte = 8
+    else :
+        elem_byte = 4
+
+    smem_per_block = _estimate_smem_per_block_bytes(each_config, 128, elem_byte)
+    regs_per_thread = _estimate_regs_per_thread(each_config, data_type)
+    threads_per_block = (each_config.size_FRAG_X * each_config.size_FRAG_Y)
+
+    (cta, bottleneck, B_hw, B_threads, B_warps, B_regs, B_smem) = _estimate_cta_per_sm_active(
+        threads_per_block=threads_per_block,
+        regs_per_thread=regs_per_thread,
+        smem_per_block=smem_per_block,
+        caps=A100_DEFAULT_CAPS,
+    )
+
+    smem_total_stage1 = int(smem_per_block)
+    stage_val         = int(getattr(each_config, 'stage', 1))
+
+    # stage=1일 때 smem을 stage 수로 나누면 1 stage당 smem
+    smem_per_stage = smem_total_stage1 // max(stage_val, 1)
+
+    store_lines_total, store_lines_per_tb = compute_store_cost_warp_aware(
+        each_config, tile_d, num_warp, num_TBs, elem_bytes=elem_byte
+    )
+
+    cost_store = store_lines_total
+
+    S = max(1, min(stage_val, PIPELINE_CONSTS['stage_cap']))
+
+    # ── 1) smem 증가로 인한 occupancy 감소 ──────────────────
+    smem_total = smem_per_stage * S
+    if smem_total > 0:
+        cta_limited_by_smem = A100_DEFAULT_CAPS['max_smem_per_sm'] // smem_total
+    else:
+        cta_limited_by_smem = cta
+
+    cost_total_v2, mem_efficiency = compute_cost_with_pipeline(
+        total_load_tx    = total_load_tx,
+        cost_store       = cost_store,
+        tx_per_loop      = tx_per_loop,
+        mma_per_loop     = each_config.flops_per_loop / num_warp,
+        stage            = stage_val,
+        smem_per_stage_bytes = smem_per_stage,
+        cta_per_sm_at_stage1 = cta,
+        max_smem_per_sm  = A100_DEFAULT_CAPS['max_smem_per_sm'],
+        warps_per_tb     = num_warp,
+        idx = idx
+    )
+
+    # ---- 저장 ----
+    each_config.cost_total_v2      = cost_total_v2
+    each_config.exposed_frac_v2    = mem_efficiency
+
+    # ---- 저장 ----
+    each_config.t2_tx_per_tb        = t2_tx_per_tb
+    each_config.v2_tx_per_tb        = v2_tx_per_tb
+    each_config.cost_load_total_v2  = total_load_tx
+    each_config.cost_store_total_v2 = cost_store
+    each_config.tx_per_loop_v2      = tx_per_loop
+    each_config.cta                 = min(cta, cta_limited_by_smem)
+    each_config.t2_issue_per_tb     = t2_issue_per_tb
+    each_config.v2_issue_per_tb     = v2_issue_per_tb
+    each_config.cost_load_issue_v2  = total_load_issue
+    each_config.tx_per_loop_bw_v2   = tx_per_loop_bw
+    each_config.tx_per_loop_issue_v2= tx_per_loop_issue
+
 #
-def cost_model_total(l_configurations) :
+def cost_model(l_configurations, data_type) :
     #
     opt_print = 0
 
@@ -2517,17 +1135,14 @@ def cost_model_total(l_configurations) :
     #
     for idx, each_config in enumerate(l_configurations) :
         l_comb = tc_gen_cost_models_TBs(each_config, idx, opt_print)
-        p_any = tc_gen_cost_full_partial(each_config)
-        tc_gen_cost_models_GM(each_config, l_comb, idx, opt_print)
-        tc_gen_cost_models_GM4(each_config, l_comb, idx, opt_print)
+        # p_any = tc_gen_cost_full_partial(each_config)
+        # tc_gen_cost_models_GM(each_config, l_comb, idx, opt_print)
+        # tc_gen_cost_models_GM4(each_config, l_comb, idx, opt_print)
         # tc_gen_cost_models_Kernels(each_config)
-        tc_gen_cost_models_Computes(each_config)
-        tc_gen_cost_models_pipeline2(each_config, p_any)
-        tc_gen_cost_full_partial2(each_config)
-        cm_v2.tc_gen_cost_model_v2(each_config, l_comb, idx)
-    
-    #
-    # add_a100_metrics_to_configs(l_configurations, caps=A100_DEFAULT_CAPS)
+        tc_gen_cost_models_Computes(each_config, data_type)
+        # tc_gen_cost_models_pipeline2(each_config, p_any)
+        # tc_gen_cost_full_partial2(each_config)
+        tc_gen_cost_model_v2(each_config, l_comb, idx, data_type)
 
     #
     if opt_print == 1 :

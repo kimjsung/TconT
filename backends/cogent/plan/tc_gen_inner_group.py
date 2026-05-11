@@ -1,9 +1,57 @@
-import re, copy
+import re, copy, hashlib
 from collections import OrderedDict
 
 from base.proc_configuration import get_configurations
 from base.proc_configuration import transform_config_inner_group
-from tc_helper import tc_helper_find_value
+from tc_helper               import tc_helper_find_value
+
+
+def _split_index_name(index_name):
+    match = re.match(r"^([A-Za-z_]+)(\d+)?$", index_name)
+    if match is None:
+        return index_name, None
+    base_name = match.group(1)
+    split_suffix = match.group(2)
+    return base_name, split_suffix
+
+
+def _build_canonical_index_labels(output_indices, lhs_indices, rhs_indices, tile_sizes):
+    label_map = {}
+
+    for idx, output_idx in enumerate(output_indices):
+        label_map[output_idx] = f"o{idx}"
+
+    reduction_bases = []
+    for tensor_indices in (lhs_indices, rhs_indices):
+        for index_name in tensor_indices:
+            base_name, _ = _split_index_name(index_name)
+            if base_name not in label_map and base_name not in reduction_bases:
+                reduction_bases.append(base_name)
+
+    for idx, reduction_idx in enumerate(reduction_bases):
+        label_map[reduction_idx] = f"k{idx}"
+
+    for index_name, _ in tile_sizes:
+        base_name, split_suffix = _split_index_name(index_name)
+        if base_name not in label_map:
+            label_map[base_name] = f"u{len(label_map)}"
+
+        if split_suffix is not None:
+            label_map[index_name] = f"{label_map[base_name]}s{int(split_suffix) - 1}"
+
+    return label_map
+
+
+def _canonicalize_index(index_name, label_map):
+    if index_name in label_map:
+        return label_map[index_name]
+
+    base_name, split_suffix = _split_index_name(index_name)
+    base_label = label_map.get(base_name, base_name)
+    if split_suffix is None:
+        return base_label
+    return f"{base_label}s{int(split_suffix) - 1}"
+
 #
 def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, variant_num, opt_print, data_type) :
     #
@@ -129,7 +177,7 @@ def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, varian
     return l_inner_groups, str_binary_input
 
 #
-def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print) :
+def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print, dtype) :
     #
     if opt_print == 1 :
         print("=================== Step 3: Processing Inner-Groups ========================")
@@ -205,7 +253,7 @@ def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print
                                     each_inner_group[7], each_inner_group[8], [each_inner_group[9]], each_inner_group[5], each_inner_group[10], each_inner_group[11]])
         
         #
-        l_kernal_binary = [each_inner_group[0], each_inner_group[2], l_temp_input_tensors, each_inner_group[8], [each_inner_group[9]], each_inner_group[5], each_inner_group[11], each_inner_group[12]]
+        l_kernal_binary = [each_inner_group[0], each_inner_group[2], l_temp_input_tensors, each_inner_group[8], [each_inner_group[9]], each_inner_group[5], each_inner_group[11], each_inner_group[12], l_temp_external_indices, dtype]
 
     #
     if opt_print == 1 :
@@ -218,33 +266,60 @@ def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print
 def make_kernel_name(l_kernal_binary):
     frag_mapped = l_kernal_binary[0]
     reg_mapped  = l_kernal_binary[1]
-    t2_indices  = l_kernal_binary[2][0][0][1]
-    v2_indices  = l_kernal_binary[2][0][1][1]
+    left_indices = l_kernal_binary[2][0][0][1]
+    right_indices = l_kernal_binary[2][0][1][1]
     op          = l_kernal_binary[2][0][2]
     warp_shape  = l_kernal_binary[3]
     stage       = l_kernal_binary[4]
     tile_sizes  = l_kernal_binary[5]
     d2_flag     = l_kernal_binary[6]
+    output_indices = l_kernal_binary[8]
+    data_type = l_kernal_binary[9]
 
+    fvi = output_indices[0]
+    if fvi in left_indices:
+        rhs_indices = left_indices
+        lhs_indices = right_indices
+    else:
+        rhs_indices = right_indices
+        lhs_indices = left_indices
+
+    label_map = _build_canonical_index_labels(output_indices, lhs_indices, rhs_indices, tile_sizes)
+    
+    dtype_map = {'DOUBLE': 'FP64', 'FLOAT': 'TF32'}
     op_map  = {'+': 'iadd', '-': 'isub'}
     op_str  = op_map.get(op, op)
-    t2_str    = 't2.' + '_'.join(t2_indices)           # t2.b.d.a
-    v2_str    = 'v2.' + '_'.join(v2_indices)           # v2.d.c
-    frag_str  = 'frag.' + '_'.join(frag_mapped)        # frag.a.c1
-    reg_str   = 'reg.'  + '_'.join(reg_mapped)         # reg.b.c2
-    tile_str = '.'.join(f"{k}_{v}" for k, v in tile_sizes)  # d8.a8.b16.c1.16.c2.2
+    dtype_str = dtype_map.get(data_type)
+    out_str   = 'out.' + '_'.join(_canonicalize_index(idx, label_map) for idx in output_indices)
+    lhs_str   = 'lhs.' + '_'.join(_canonicalize_index(idx, label_map) for idx in lhs_indices)
+    rhs_str   = 'rhs.' + '_'.join(_canonicalize_index(idx, label_map) for idx in rhs_indices)
+    frag_str  = 'frag.' + '_'.join(_canonicalize_index(idx, label_map) for idx in frag_mapped)
+    reg_str   = 'reg.'  + '_'.join(_canonicalize_index(idx, label_map) for idx in reg_mapped)
+    tile_str = '.'.join(f"{_canonicalize_index(k, label_map)}_{v}" for k, v in tile_sizes)
     warp_str  = 'w.' + 'x'.join(map(str, warp_shape))  # w4x1
     stage_str = 's.' + ''.join(map(str, stage))         # s3
     d2_str    = 'd2.' + 'x'.join(map(str, d2_flag))   # d2.1x1
 
     parts = [
-        t2_str, v2_str, op_str,   # 핵심 그룹
-        tile_str,                  # 핵심 그룹
-        frag_str, reg_str,         # 매핑 그룹
+        out_str, lhs_str, rhs_str, op_str, dtype_str,
+        tile_str,
+        frag_str, reg_str,
         warp_str, stage_str, d2_str  # 실행 설정 그룹
     ]
 
-    kernel_bin = 'kernel__' + '__'.join(parts)
+    verbose_name = 'kernel__' + '__'.join(parts)
+    digest = hashlib.blake2s(verbose_name.encode("utf-8"), digest_size=8).hexdigest()
+
+    short_parts = [
+        out_str,
+        op_str,
+        dtype_str,
+        warp_str,
+        stage_str,
+        digest,
+    ]
+
+    kernel_bin = 'kernel__' + '__'.join(short_parts)
         
     return kernel_bin
 

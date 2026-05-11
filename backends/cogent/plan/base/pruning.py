@@ -1,4 +1,4 @@
-import math, os, re, sys
+import math, os, re
 import numpy as np
 from typing import Any, Dict, List, Tuple, NamedTuple
 from itertools import product as iproduct
@@ -11,8 +11,8 @@ class SplitFlagsResult(NamedTuple):
     a_flag:        int
     double_k_flag: bool
 
-def compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping) -> SplitFlagsResult:
-    if "a" in t2_indices:
+def compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping, out_fvi) -> SplitFlagsResult:
+    if out_fvi in t2_indices:
         n_indices, m_indices = t2_indices, v2_indices
         n_val, m_val = m, n
     else:
@@ -44,16 +44,21 @@ def compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping) 
     return SplitFlagsResult(m_val, n_val, big, small, a_flag, double_k_flag)
 
 
-def collect_split_cand_simple(tile_cand, frag_cand):
+def collect_split_cand_simple(tile_cand, frag_cand, out_fvi, data_type):
     result = []
     for l_index, tile_size in tile_cand:
         for cand in frag_cand:
             frag = f"{l_index[0]}1"
             reg  = f"{l_index[0]}2"
-
-            if "a" == l_index[0] :
-                if cand == 16 :
-                    continue
+            
+            if data_type == "DOUBLE" :
+                if out_fvi == l_index[0] :
+                    if cand == 16 :
+                        continue
+            else :
+                if out_fvi == l_index[0] :
+                    if cand == 32 :
+                        continue
             
             if tile_size // cand < 1 :
                 continue
@@ -62,7 +67,7 @@ def collect_split_cand_simple(tile_cand, frag_cand):
     return result
 
 
-def collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, size_map):
+def collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, size_map, out_fvi, data_type):
     result = []
     swap_flag = 0
     # print(f"tile_cand: {tile_cand}", file=sys.stderr)
@@ -90,12 +95,17 @@ def collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key,
                 #     continue
 
                 if fvi_flag :
-                    if i == small_tile[0] and tile_size < 128 :
-                        if 8 not in small_fvi_cand :
-                            small_fvi_cand.append(8)
-                            
+                    if data_type == "DOUBLE" :
+                        if i == small_tile[0] and tile_size < 128 :
+                            if 8 not in small_fvi_cand :
+                                small_fvi_cand.append(8)
+                    else :
+                        if i == small_tile[0] and tile_size < 256 :
+                            if 16 not in small_fvi_cand :
+                                small_fvi_cand.append(16)
+
                     if i == small_tile[0] and reg_size not in small_fvi_cand :
-                        if (i not in ["a", "a1", "a2"]) and (mapped_idx not in ["a", "a1", "a2"]) and (cand in small_fvi_cand) :
+                        if (i not in [out_fvi, f"{out_fvi}1", f"{out_fvi}2"]) and (mapped_idx not in [out_fvi, f"{out_fvi}1", f"{out_fvi}2"]) and (cand in small_fvi_cand) :
                             result.append([[i, cand], [mapped_idx, reg_size]])
                             swap_flag = 1
                             continue
@@ -149,77 +159,131 @@ def tb_partial_ratio(x, base) :
     return tb_partial_ratio
 
 
-def get_big_fvi_cand(big_tile, k_indices, k_cand, size_map, index_mapping):
-    if (index_mapping[2][0] == big_tile[0]) or (index_mapping[4][0] == big_tile[0]):
-        if size_map[big_tile[0]] % 2 == 0:
-            return [8, 16]
-        else :
+def get_big_fvi_cand(big_tile, k_indices, k_cand, size_map, index_mapping, out_fvi, data_type):
+    if data_type == "DOUBLE" :
+        if (index_mapping[2][0] == big_tile[0]) or (index_mapping[4][0] == big_tile[0]):
+            if size_map[big_tile[0]] % 2 == 0:
+                return [8, 16]
+            else :
+                return [8]
+        elif out_fvi == big_tile[0] :
+            if size_map[big_tile[0]] % 2 == 0:
+                return [8, 16]
+            else :
+                return [8]
+        elif big_tile[0] in k_indices:
+            return k_cand
+        elif (size_map[big_tile[0]] % 16 == 0) or ((tb_partial_ratio(size_map[big_tile[0]], 16) < 0.2) and (tail_partial_ratio(size_map[big_tile[0]], 16) <= 0.5) and (size_map[big_tile[0]] % 2 == 0)) :
+            return [16]
+        else:
             return [8]
-    elif "a" == big_tile[0] :
-        if size_map[big_tile[0]] % 2 == 0:
-            return [8, 16]
-        else :
-            return [8]
-    elif big_tile[0] in k_indices:
-        return k_cand
-    elif (size_map[big_tile[0]] % 16 == 0) or ((tb_partial_ratio(size_map[big_tile[0]], 16) < 0.2) and (tail_partial_ratio(size_map[big_tile[0]], 16) <= 0.5) and (size_map[big_tile[0]] % 2 == 0)) :
-        return [16]
-    else:
-        return [8]
+    else :
+        if (index_mapping[2][0] == big_tile[0]) or (index_mapping[4][0] == big_tile[0]):
+            if (size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0):
+                return [16, 32]
+            else :
+                return [16]
+        elif out_fvi == big_tile[0] :
+            if (size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0):
+                return [16, 32]
+            else :
+                return [16]
+        elif big_tile[0] in k_indices:
+            return k_cand
+        elif (size_map[big_tile[0]] % 32 == 0) or ((tb_partial_ratio(size_map[big_tile[0]], 32) < 0.2) and (tail_partial_ratio(size_map[big_tile[0]], 32) <= 0.5) and ((size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0))) :
+            return [32]
+        else:
+            return [16]
     
 
-def get_frag_reg(big_tile, index_mapping):
-    if "a" in big_tile:
+def get_frag_reg(big_tile, index_mapping, out_fvi):
+    if out_fvi in big_tile:
         return index_mapping[1][0], index_mapping[3][0]
     else:
         return index_mapping[2][0], index_mapping[4][0]
     
 
-def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices):
+def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, data_type):
     result = []
     is_simple = (len(big_indices) - len(k_indices) == 1)
-    if is_simple:
-        for tile in tile_big:
-            for cand in frag_cand:
-                result.append([[frag, cand], [reg, tile // cand]])
-    else :
-        if big_tile[0] in k_indices:
+
+    if data_type == 'DOUBLE' :
+        if is_simple:
             for tile in tile_big:
                 for cand in frag_cand:
-                    reg_size = tile // cand
-                    if reg_size <= 16:
+                    result.append([[frag, cand], [reg, tile // cand]])
+        else :
+            if big_tile[0] in k_indices:
+                for tile in tile_big:
+                    for cand in frag_cand:
+                        reg_size = tile // cand
+                        if reg_size <= 16:
+                            result.append([[frag, cand], [reg, reg_size]])
+
+            elif big_tile[0] == frag:
+                for tile in tile_big:
+                    for cand in big_fvi_cand:
+                        reg_size = tile // cand
                         result.append([[frag, cand], [reg, reg_size]])
 
-        elif big_tile[0] == frag:
-            for tile in tile_big:
-                for cand in big_fvi_cand:
-                    reg_size = tile // cand
-                    result.append([[frag, cand], [reg, reg_size]])
-
-        else:
-            for tile in tile_big:
-                for cand in big_fvi_cand:
-                    # frag_size = tile // cand
-                    # if 8 <= frag_size <= 16:
-                    #     result.append([[frag, frag_size], [reg, cand]])
-                    # else :
-                    #     while 16 >= (tile // cand) >= 8 :
-                    #         tmp_cand = cand // 2
-                    #         frag_size = tile // tmp_cand
-                    #         if 8 <= frag_size <= 16:
-                    #             result.append([[frag, frag_size], [reg, cand]])
-                    tmp_cand = cand
-                    while tmp_cand >= 1:
-                        frag_size = tile // tmp_cand
-                        if frag_size == 8 or frag_size == 16:
-                            result.append([[frag, frag_size], [reg, tmp_cand]])
-                            break
-                        elif frag_size < 8:
-                            tmp_cand = tmp_cand // 2  # cand를 줄여서 frag_size를 키움
-                        else:  # frag_size > 16
-                            tmp_cand = tmp_cand * 2  # cand를 늘려서 frag_size를 줄임
-                            if tmp_cand > tile:  # 무한루프 방지
+            else:
+                for tile in tile_big:
+                    for cand in big_fvi_cand:
+                        # frag_size = tile // cand
+                        # if 8 <= frag_size <= 16:
+                        #     result.append([[frag, frag_size], [reg, cand]])
+                        # else :
+                        #     while 16 >= (tile // cand) >= 8 :
+                        #         tmp_cand = cand // 2
+                        #         frag_size = tile // tmp_cand
+                        #         if 8 <= frag_size <= 16:
+                        #             result.append([[frag, frag_size], [reg, cand]])
+                        tmp_cand = cand
+                        while tmp_cand >= 1:
+                            frag_size = tile // tmp_cand
+                            if frag_size == 8 or frag_size == 16:
+                                result.append([[frag, frag_size], [reg, tmp_cand]])
                                 break
+                            elif frag_size < 8:
+                                tmp_cand = tmp_cand // 2  # cand를 줄여서 frag_size를 키움
+                            else:  # frag_size > 16
+                                tmp_cand = tmp_cand * 2  # cand를 늘려서 frag_size를 줄임
+                                if tmp_cand > tile:  # 무한루프 방지
+                                    break
+    else :
+        if is_simple:
+            for tile in tile_big:
+                for cand in frag_cand:
+                    result.append([[frag, cand], [reg, tile // cand]])
+        else :
+            if big_tile[0] in k_indices:
+                for tile in tile_big:
+                    for cand in frag_cand:
+                        reg_size = tile // cand
+                        if reg_size <= 32:
+                            result.append([[frag, cand], [reg, reg_size]])
+
+            elif big_tile[0] == frag:
+                for tile in tile_big:
+                    for cand in big_fvi_cand:
+                        reg_size = tile // cand
+                        result.append([[frag, cand], [reg, reg_size]])
+
+            else:
+                for tile in tile_big:
+                    for cand in big_fvi_cand:
+                        tmp_cand = cand
+                        while tmp_cand >= 1:
+                            frag_size = tile // tmp_cand
+                            if frag_size == 16 or frag_size == 32:
+                                result.append([[frag, frag_size], [reg, tmp_cand]])
+                                break
+                            elif frag_size < 16:
+                                tmp_cand = tmp_cand // 2  # cand를 줄여서 frag_size를 키움
+                            else:  # frag_size > 16
+                                tmp_cand = tmp_cand * 2  # cand를 늘려서 frag_size를 줄임
+                                if tmp_cand > tile:  # 무한루프 방지
+                                    break
 
     return result
 
@@ -256,10 +320,14 @@ def get_alpha_key(index_name):
     return re.sub(r'\d+', '', index_name)
 
 
-def find_divisors(comb):
+def find_divisors(comb, data_type):
     front_val = comb[0][1] * comb[1][1] # n
     back_val  = comb[2][1] * comb[3][1] # m
-    size_cond = (comb[0][1] * comb[2][1]) // 32
+
+    if data_type == "DOUBLE" :
+        size_cond = (comb[0][1] * comb[2][1]) // 32
+    else :
+        size_cond = (comb[0][1] * comb[2][1]) // 64
 
     second_idx  = get_alpha_key(comb[1][0])
     fourth_idx  = get_alpha_key(comb[3][0])
@@ -267,7 +335,11 @@ def find_divisors(comb):
 
     inherently_unbalanced = max(front_val, back_val) / min(front_val, back_val) > 4
 
-    divisor_cands = [1, 2, 4, 8]
+    if data_type == "DOUBLE" :
+        divisor_cands = [1, 2, 4, 8]
+    else :
+        divisor_cands = [1, 2, 4, 8, 16]
+    
     results = []
 
     for d_front, d_back in iproduct(divisor_cands, divisor_cands):
@@ -287,9 +359,15 @@ def find_divisors(comb):
         if not inherently_unbalanced and max(front_result, back_result) / min(front_result, back_result) > 2:
             # print(f"Skipping divisor pair ({d_front}, {d_back}) because it results in an unbalanced split (front_result: {front_result}, back_result: {back_result})", file=sys.stderr)
             continue
-        if (front_result * back_result // 64) * 4 > 128:
+
+        if data_type == "DOUBLE" :
+            if (front_result * back_result // 64) * 4 > 128:
+                # print(f"Skipping divisor pair ({d_front}, {d_back}) because it results in too large of a tile (front_result: {front_result}, back_result: {back_result})", file=sys.stderr)
+                continue
+        else :
+            if (front_result * back_result // 256) * 8 > 128:
             # print(f"Skipping divisor pair ({d_front}, {d_back}) because it results in too large of a tile (front_result: {front_result}, back_result: {back_result})", file=sys.stderr)
-            continue
+                continue
         # if second_is_closer and front_result < back_result:
         #     continue
         # if not second_is_closer and back_result < front_result:
@@ -305,34 +383,56 @@ def find_divisors(comb):
     return results
 
 
-def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt):
-    def get_min_val(fx):
-        if fx < 16 :
-            return 8
-        if fx < 32 :
-            return 16
-        if fx < 64 :
-            return 16
-        if fx < 128 :
-            return 32
+def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type):
+    def get_min_val(fx, data_type):
+        if data_type == "DOUBLE" :
+            if fx < 16 :
+                return 8
+            if fx < 32 :
+                return 16
+            if fx < 64 :
+                return 16
+            if fx < 128 :
+                return 32
+            else :
+                return 64
         else :
-            return 64
+            if fx < 32 :
+                return 16
+            if fx < 64 :
+                return 32
+            if fx < 128 :
+                return 32
+            if fx < 256 :
+                return 64
+            else :
+                return 128
 
-    def get_max_val(fx):
-        if fx < 16:  return 16
-        if fx < 32:  return 32
-        if fx < 64:  return 32
-        if fx < 128: return 64
-        else:        return 64
+    def get_max_val(fx, data_type):
+        if data_type == "DOUBLE" :
+            if fx < 16:  return 16
+            if fx < 32:  return 32
+            if fx < 64:  return 32
+            if fx < 128: return 64
+            else:        return 64
+        else :
+            if fx < 32:  return 32
+            if fx < 64:  return 64
+            if fx < 128:  return 64
+            if fx < 256: return 128
+            else:        return 128
 
     if x <= 8 : 
         return 8
     
     fx = f(x)
-    MAX_TILE = 64
-    
-    lo = get_min_val(fx)
-    hi = min(MAX_TILE, get_max_val(fx))
+    if data_type == "DOUBLE" :
+        MAX_TILE = 64
+    else :
+        MAX_TILE = 128
+
+    lo = get_min_val(fx, data_type)
+    hi = min(MAX_TILE, get_max_val(fx, data_type))
     # print(f"Selecting tile for x={x}, fx={fx}, initial range=({lo}, {hi})", file=sys.stderr)
     if internal_len > 1 and small_ext_cnt == 1 and big_ext_cnt == 1 :
         if lo / 2 >= 8 :
@@ -355,8 +455,12 @@ def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt):
             selected = selected // 2
 
         # 루프 후 selected가 0이 됐을 때 처리
-        if selected <= 8:
-            selected = 8
+        if data_type == "DOUBLE" :
+            if selected <= 8:
+                selected = 8
+        else :
+            if selected <= 16:
+                selected = 16
     
     return selected
 
@@ -375,18 +479,18 @@ def merge_indexed_items(lst):
 
 
 def f(x) :
-        size = 1 << int(np.log2(x))
-        return size
+    size = 1 << int(np.log2(x))
+    return size
 
 
 def partial_decision(x, base) :
-            tail = tail_partial_ratio(x, base)
-            tb = tb_partial_ratio(x, base)
+    tail = tail_partial_ratio(x, base)
+    tb = tb_partial_ratio(x, base)
 
-            return [tail, tb, tail * tb]
+    return [tail, tb, tail * tb]
 
 
-def tile_k_range(k, k_cand) :    
+def tile_k_range(k, k_cand, data_type) :    
     k_values = [kt for kt in k_cand]
 
     result = {}
@@ -395,17 +499,30 @@ def tile_k_range(k, k_cand) :
         if max_stage < 1 :
             max_stage = 1
 
-        if kt == 4:
-            if max_stage >= 3 :
-                min_stage = 3
-            else :
+        if data_type == "DOUBLE" :
+            if kt == 4:
+                if max_stage >= 3 :
+                    min_stage = 3
+                else :
+                    min_stage = 1
+            elif kt == 16 :
+                max_stage = min(2, max_stage)
                 min_stage = 1
-        elif kt == 16 :
-            max_stage = min(2, max_stage)
-            min_stage = 1
+            else :
+                max_stage = min(3, max_stage)
+                min_stage = 1
         else :
-            max_stage = min(3, max_stage)
-            min_stage = 1
+            if kt == 8:
+                if max_stage >= 3 :
+                    min_stage = 3
+                else :
+                    min_stage = 1
+            elif kt == 32 :
+                max_stage = min(2, max_stage)
+                min_stage = 1
+            else :
+                max_stage = min(3, max_stage)
+                min_stage = 1
 
         if min_stage <= max_stage :
             result[kt] = list(range(min_stage, max_stage + 1))
@@ -420,20 +537,20 @@ def tile_k_range(k, k_cand) :
     return tile_candidates
 
 
-def tile_range_small_v2(x, internal_len, small_ext_cnt, big_ext_cnt, t3_indices, small_indices, k_indices, size_map, index_mapping) :
+def tile_range_small_v2(x, internal_len, small_ext_cnt, big_ext_cnt, t3_indices, small_indices, k_indices, size_map, index_mapping, out_fvi, data_type) :
     from itertools import combinations
     ext_mapped = [index for index in small_indices if index not in k_indices]
 
-    if "a" in ext_mapped :
+    if out_fvi in ext_mapped :
         flag = 1
         if len(ext_mapped) > 1 :
-            if small_indices[0] in t3_indices and small_indices[0] != "a" :
-                mapped = [["a", small_indices[0]]]
+            if small_indices[0] in t3_indices and small_indices[0] != out_fvi :
+                mapped = [[out_fvi, small_indices[0]]]
             else :
-                candidates = [x for x in small_indices if x != "a" and x != small_indices[0]]
+                candidates = [x for x in small_indices if x != out_fvi and x != small_indices[0]]
                 for item in t3_indices :
-                    if item != "a" and item in candidates :
-                        mapped = [["a", item]]
+                    if item != out_fvi and item in candidates :
+                        mapped = [[out_fvi, item]]
                         break
         else :
             mapped = [ext_mapped]
@@ -457,7 +574,7 @@ def tile_range_small_v2(x, internal_len, small_ext_cnt, big_ext_cnt, t3_indices,
 
     tmp_tile_cand = []
     for cnt, (x, comb) in enumerate(mapped_with_size) :
-        tile = select_tile(x, internal_len, small_ext_cnt, big_ext_cnt)
+        tile = select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type)
         tmp_tile_cand.append([comb, tile])
 
     if flag :
@@ -477,7 +594,7 @@ def tile_range_small_v2(x, internal_len, small_ext_cnt, big_ext_cnt, t3_indices,
     return tile_cand
 
 
-def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, internal_len, size_map, index_mapping) :
+def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, internal_len, size_map, index_mapping, out_fvi, data_type) :
     if a_flag :
         frag_mapped = index_mapping[1][0]
         reg_mapped = index_mapping[3][0]
@@ -494,65 +611,120 @@ def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, 
 
     pow2_size = f(index_size)
 
-    if split_flag :
-        if pow2_size >= 2048 :
-            if tail_partial_ratio(index_size, 128) <= 0.5 :
-                tile_size = 128
-            else :
+    if data_type == "DOUBLE" :
+        if split_flag :
+            if pow2_size >= 2048 :
+                if tail_partial_ratio(index_size, 128) <= 0.5 :
+                    tile_size = 128
+                else :
+                    tile_size = 64
+            elif pow2_size >= 1024 :
                 tile_size = 64
-        elif pow2_size >= 1024 :
-            tile_size = 64
-        elif pow2_size >= 256 :
-            tile_size = 32
-        else :
-            tile_size = 16
+            elif pow2_size >= 256 :
+                tile_size = 32
+            else :
+                tile_size = 16
 
-        if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] == index_mapping[0][0] :
-            tile_size *= 2
+            if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] == index_mapping[0][0] :
+                tile_size *= 2
 
-        l_tile = [tile_size]
-    else :
-        if pow2_size <= 32 :
-            min_val = 16
-            max_val = 32
-        elif pow2_size < 2048 :
-            min_val = 32
-            max_val = 64
-        elif pow2_size < 8192 :
-            min_val = 64
-            max_val = 128
+            l_tile = [tile_size]
         else :
-            if "a" == big_tile[0] :
+            if pow2_size <= 32 :
+                min_val = 16
+                max_val = 32
+            elif pow2_size < 2048 :
+                min_val = 32
+                max_val = 64
+            elif pow2_size < 8192 :
                 min_val = 64
                 max_val = 128
             else :
-                if size_map[big_tile[0]] % 2 != 0 :
+                if out_fvi == big_tile[0] :
                     min_val = 64
                     max_val = 128
-                else : 
+                else :
+                    if size_map[big_tile[0]] % 2 != 0 :
+                        min_val = 64
+                        max_val = 128
+                    else : 
+                        min_val = 128
+                        max_val = 256
+
+            lo = min_val
+            hi = max_val
+            pows = pow2_in_range(lo, hi)
+            
+            l_tile_partial_ratio = []
+            for tile in pows :
+                l_tile_partial_ratio.append([tile, partial_decision(x, tile)])
+            
+            l_tile = [v[0] for v in l_tile_partial_ratio]
+
+            if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] != index_mapping[0][0] :
+                original = l_tile.copy()
+                tmp = [tile // 2 for tile in original if tile > min_val]
+
+                l_tile = sorted(set(original + tmp))
+    else :
+        if split_flag :
+            if pow2_size >= 4096 :
+                if tail_partial_ratio(index_size, 256) <= 0.5 :
+                    tile_size = 256
+                else :
+                    tile_size = 128
+            elif pow2_size >= 2048 :
+                tile_size = 128
+            elif pow2_size >= 512 :
+                tile_size = 64
+            else :
+                tile_size = 32
+
+            if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] == index_mapping[0][0] :
+                tile_size *= 2
+
+            l_tile = [tile_size]
+        else :
+            if pow2_size <= 64 :
+                min_val = 32
+                max_val = 64
+            elif pow2_size < 4096 :
+                min_val = 64
+                max_val = 128
+            elif pow2_size < 16384 :
+                min_val = 128
+                max_val = 256
+            else :
+                if out_fvi == big_tile[0] :
                     min_val = 128
                     max_val = 256
+                else :
+                    if (size_map[big_tile[0]] % 2 != 0) and (size_map[big_tile[0]] % 4 != 0) :
+                        min_val = 128
+                        max_val = 256
+                    else : 
+                        min_val = 256
+                        max_val = 512
 
-        lo = min_val
-        hi = max_val
-        pows = pow2_in_range(lo, hi)
-        
-        l_tile_partial_ratio = []
-        for tile in pows :
-            l_tile_partial_ratio.append([tile, partial_decision(x, tile)])
-        
-        l_tile = [v[0] for v in l_tile_partial_ratio]
+            lo = min_val
+            hi = max_val
+            pows = pow2_in_range(lo, hi)
 
-        if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] != index_mapping[0][0] :
-            original = l_tile.copy()
-            tmp = [tile // 2 for tile in original if tile > min_val]
+            l_tile_partial_ratio = []
+            for tile in pows :
+                l_tile_partial_ratio.append([tile, partial_decision(x, tile)])
 
-            l_tile = sorted(set(original + tmp))
+            l_tile = [v[0] for v in l_tile_partial_ratio]
 
+            if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] != index_mapping[0][0] :
+                original = l_tile.copy()
+                tmp = [tile // 2 for tile in original if tile > min_val]
+
+                l_tile = sorted(set(original + tmp))
     return l_tile
 
 
-def make_full_comb(external_comb, tile_k, index_mapping, a_flag) :
+def make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type) :
     config_struct = []
     for tk_l, comb_l in iproduct(tile_k, external_comb) :
         tk = tk_l[0]
@@ -561,20 +733,36 @@ def make_full_comb(external_comb, tile_k, index_mapping, a_flag) :
         shape = comb_l[1]
         internal = index_mapping[0]
         
-        if tk == 16 :
-            tile = 1
-            if a_flag :
-                n_mapped = [index_mapping[1][0], index_mapping[3][0]]
-                for tmp in tile_comb :
-                    if tmp[0] in n_mapped :
-                        tile *= tmp[1]
-            else :
-                m_mapped = [index_mapping[2][0], index_mapping[4][0]]
-                for tmp in tile_comb :
-                    if tmp[0] in m_mapped :
-                        tile *= tmp[1]
-            if tile == 256 :
-                continue
+        if data_type == "DOUBLE" :
+            if tk == 16 :
+                tile = 1
+                if a_flag :
+                    n_mapped = [index_mapping[1][0], index_mapping[3][0]]
+                    for tmp in tile_comb :
+                        if tmp[0] in n_mapped :
+                            tile *= tmp[1]
+                else :
+                    m_mapped = [index_mapping[2][0], index_mapping[4][0]]
+                    for tmp in tile_comb :
+                        if tmp[0] in m_mapped :
+                            tile *= tmp[1]
+                if tile == 256 :
+                    continue
+        else :
+            if tk == 32 :
+                tile = 1
+                if a_flag :
+                    n_mapped = [index_mapping[1][0], index_mapping[3][0]]
+                    for tmp in tile_comb :
+                        if tmp[0] in n_mapped :
+                            tile *= tmp[1]
+                else :
+                    m_mapped = [index_mapping[2][0], index_mapping[4][0]]
+                    for tmp in tile_comb :
+                        if tmp[0] in m_mapped :
+                            tile *= tmp[1]
+                if tile == 1024 :
+                    continue
         
 
         full_tile_comb = []
@@ -593,12 +781,13 @@ def make_full_comb(external_comb, tile_k, index_mapping, a_flag) :
     return config_struct
 
 
-def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
+def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data_type) :
     t3_indices = l_tensors[0]
     k_indices = l_tensors[1]
     t2_indices = l_tensors[2]
     v2_indices = l_tensors[3]
-    
+    out_fvi = t3_indices[0]
+
     m = 1
     for idx in t2_indices :
         if idx not in k_indices :
@@ -613,10 +802,10 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
     for idx in k_indices :
         k *= index_to_extent[idx]
 
-    result = compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping)
+    result = compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping, out_fvi)
     m_val, n_val, big, small, a_flag, double_k_flag = result
 
-    if "a" in t2_indices :
+    if out_fvi in t2_indices :
         if a_flag == 1 :
             small_tile_fvi = v2_indices[0]
             big_tile_fvi = t2_indices[0]
@@ -661,7 +850,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
     else :
         big_internal_flag = False
 
-    if "a" in t2_indices : # m = v2, n = t2
+    if out_fvi in t2_indices : # m = v2, n = t2
         if m_val < n_val :
             big_indices = t2_indices
             small_indices = v2_indices
@@ -676,60 +865,118 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
             big_indices = t2_indices
             small_indices = v2_indices
 
-    if double_k_flag :
-        k_cand = [8]
-    else :
-        if big_tile[0] == small_tile[0] and big_tile[0] in k_indices :
-            if index_to_extent[big_tile[0]] % 16 == 0 :
-                k_cand = [8, 16]
-            else :
-                k_cand = [8]
-        elif big_tile[0] in k_indices :
-            if big / small >= 4 : 
-                if (tb_partial_ratio(index_to_extent[big_tile[0]], 16) <= 0.15) and (index_to_extent[big_tile[0]] % 2 == 0):
-                    k_cand = [16]
+    if data_type == "DOUBLE" :  
+        if double_k_flag :
+            k_cand = [8]
+        else :
+            if big_tile[0] == small_tile[0] and big_tile[0] in k_indices :
+                if index_to_extent[big_tile[0]] % 16 == 0 :
+                    k_cand = [8, 16]
+                else :
+                    k_cand = [8]
+            elif big_tile[0] in k_indices :
+                if big / small >= 4 : 
+                    if (tb_partial_ratio(index_to_extent[big_tile[0]], 16) <= 0.15) and (index_to_extent[big_tile[0]] % 2 == 0):
+                        k_cand = [16]
+                    else :
+                        k_cand = [8]
+                else :
+                    k_cand = [8]
+            elif small_tile[0] in k_indices :
+                if (tb_partial_ratio(index_to_extent[small_tile[0]], 16) < 0.5) and (index_to_extent[big_tile[0]] % 2 == 0):
+                    k_cand = [8, 16]
                 else :
                     k_cand = [8]
             else :
-                k_cand = [8]
-        elif small_tile[0] in k_indices :
-            if (tb_partial_ratio(index_to_extent[small_tile[0]], 16) < 0.5) and (index_to_extent[big_tile[0]] % 2 == 0):
-                k_cand = [8, 16]
-            else :
-                k_cand = [8]
+                if (tb_partial_ratio(index_to_extent[index_mapping[0][0]], 16) <= 0.15) and (index_to_extent[index_mapping[0][0]] % 2 == 0):
+                    k_cand = [4, 8, 16]
+                else :
+                    k_cand = [4, 8]
+    else :
+        if double_k_flag :
+            k_cand = [16]
         else :
-            if (tb_partial_ratio(index_to_extent[index_mapping[0][0]], 16) <= 0.15) and (index_to_extent[index_mapping[0][0]] % 2 == 0):
-                k_cand = [4, 8, 16]
+            if big_tile[0] == small_tile[0] and big_tile[0] in k_indices :
+                if index_to_extent[big_tile[0]] % 32 == 0 :
+                    k_cand = [16, 32]
+                else :
+                    k_cand = [16]
+            elif big_tile[0] in k_indices :
+                if big / small >= 4 : 
+                    if (tb_partial_ratio(index_to_extent[big_tile[0]], 32) <= 0.15) and ((index_to_extent[big_tile[0]] % 2 == 0) or (index_to_extent[big_tile[0]] % 4 == 0)):
+                        k_cand = [32]
+                    else :
+                        k_cand = [16]
+                else :
+                    k_cand = [16]
+            elif small_tile[0] in k_indices :
+                if (tb_partial_ratio(index_to_extent[small_tile[0]], 32) < 0.5) and ((index_to_extent[big_tile[0]] % 2 == 0) or (index_to_extent[big_tile[0]] % 4 == 0)):
+                    k_cand = [16, 32]
+                else :
+                    k_cand = [16]
             else :
-                k_cand = [4, 8]
+                if (tb_partial_ratio(index_to_extent[index_mapping[0][0]], 32) <= 0.15) and ((index_to_extent[index_mapping[0][0]] % 2 == 0) or (index_to_extent[index_mapping[0][0]] % 4 == 0)):
+                    k_cand = [8, 16, 32]
+                else :
+                    k_cand = [8, 16]
 
-    tile_k = tile_k_range(k, k_cand)
+    tile_k = tile_k_range(k, k_cand, data_type)
 
-    tile_cand = tile_range_small_v2(small, len(k_indices), small_ext_cnt, big_ext_cnt, t3_indices, small_tile, k_indices, index_to_extent, index_mapping)
+    tile_cand = tile_range_small_v2(small, len(k_indices), small_ext_cnt, big_ext_cnt, t3_indices, small_tile, k_indices, index_to_extent, index_mapping, out_fvi, data_type)
     # print(f"tile_cand: {tile_cand}", file=sys.stderr)
     # print(f"a_flag : {a_flag}", file=sys.stderr)
-    tile_big = tile_range_big(big, big_internal_flag, small_internal_flag, big_tile, a_flag, len(k_indices), index_to_extent, index_mapping)
+    tile_big = tile_range_big(
+        big,
+        big_internal_flag,
+        small_internal_flag,
+        big_tile,
+        a_flag,
+        len(k_indices),
+        index_to_extent,
+        index_mapping,
+        out_fvi,
+        data_type)
     # print(f"tile_big: {tile_big}", file=sys.stderr)
     #
-    if "a" == small_tile[0] :
-        small_fvi_cand = [8]
+
+    if data_type == "DOUBLE" :
+        if out_fvi == small_tile[0] :
+            small_fvi_cand = [8]
+        else :
+            if (small_tile[0] not in k_indices) and ((index_to_extent[small_tile[0]] % 16 == 0) or ((tb_partial_ratio(index_to_extent[small_tile[0]], 16) <= 0.5) and (tail_partial_ratio(index_to_extent[small_tile[0]], 16) <= 0.5) and (index_to_extent[small_tile[0]] % 2 == 0))) :
+                small_fvi_cand = [16]
+            else : 
+                if (small_tile[0] not in k_indices) :
+                    small_fvi_cand = [4, 8]
+                else :
+                    if (index_to_extent[small_tile[0]] % 2 == 0) :
+                        small_fvi_cand = [8, 16]
+                    else :
+                        small_fvi_cand = [4, 8]
     else :
-        if (small_tile[0] not in k_indices) and ((index_to_extent[small_tile[0]] % 16 == 0) or ((tb_partial_ratio(index_to_extent[small_tile[0]], 16) <= 0.5) and (tail_partial_ratio(index_to_extent[small_tile[0]], 16) <= 0.5) and (index_to_extent[small_tile[0]] % 2 == 0))) :
+        if out_fvi == small_tile[0] :
             small_fvi_cand = [16]
-        else : 
-            if (small_tile[0] not in k_indices) :
-                small_fvi_cand = [4, 8]
-            else :
-                if (index_to_extent[small_tile[0]] % 2 == 0) :
+        else :
+            if (small_tile[0] not in k_indices) and ((index_to_extent[small_tile[0]] % 32 == 0) or ((tb_partial_ratio(index_to_extent[small_tile[0]], 32) <= 0.5) and (tail_partial_ratio(index_to_extent[small_tile[0]], 32) <= 0.5) and ((index_to_extent[small_tile[0]] % 2 == 0) or (index_to_extent[small_tile[0]] % 4 == 0)))) :
+                small_fvi_cand = [32]
+            else : 
+                if (small_tile[0] not in k_indices) :
                     small_fvi_cand = [8, 16]
                 else :
-                    small_fvi_cand = [4, 8]
+                    if ((index_to_extent[small_tile[0]] % 2 == 0) or (index_to_extent[small_tile[0]] % 4 == 0)) :
+                        small_fvi_cand = [16, 32]
+                    else :
+                        small_fvi_cand = [8, 16]
     # print(f"small_fvi_cand: {small_fvi_cand}", file=sys.stderr)
     #
-    frag_cand = [8, 16]
+
+    if data_type == "DOUBLE" :
+        frag_cand = [8, 16]
+    else :
+        frag_cand = [16, 32]
 
     # mapping_key = Frag_mapped_index
-    if "a" in small_tile:
+    if out_fvi in small_tile:
         mapping_key = index_mapping[1]
     else:
         mapping_key = index_mapping[2]
@@ -737,38 +984,50 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
     #
     is_simple = (len(small_tile) - len(k_indices) == 1)
     if is_simple:
-        split_cand = collect_split_cand_simple(tile_cand, frag_cand)
+        split_cand = collect_split_cand_simple(tile_cand, frag_cand, out_fvi, data_type)
         swap_flag = 0
     else:
-        split_cand, swap_flag = collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, index_to_extent)
+        split_cand, swap_flag = collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, index_to_extent, out_fvi, data_type)
     # print(f"split_cand: {split_cand}", file=sys.stderr)
 
     #
-    big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping)
+    big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping, out_fvi, data_type)
     # print(f"big_fvi_cand: {big_fvi_cand}", file=sys.stderr)
 
-    frag, reg = get_frag_reg(big_tile, index_mapping)
+    frag, reg = get_frag_reg(big_tile, index_mapping, out_fvi)
     # print(f"frag, reg: {frag}, {reg}", file=sys.stderr)
 
-    big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices)
+    big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, data_type)
     # print(f"big_mapped_with_size: {big_mapped_with_size}", file=sys.stderr)
 
     from itertools import product
-    if a_flag :
-        if is_simple :
-            big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand) if not ((big[0][1] == 16) and (small[0][1] == 16))]
+    if data_type == "DOUBLE" :
+        if a_flag :
+            if is_simple :
+                big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand) if not ((big[0][1] == 16) and (small[0][1] == 16))]
+            else :
+                big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand)]
         else :
-            big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand)]
+            if is_simple :
+                big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size) if not ((big[0][1] == 16) and (small[0][1] == 16))]
+            else :
+                big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size)]
     else :
-        if is_simple :
-            big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size) if not ((big[0][1] == 16) and (small[0][1] == 16))]
+        if a_flag :
+            if is_simple :
+                big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand) if not ((big[0][1] == 32) and (small[0][1] == 32))]
+            else :
+                big_small_comb = [big + small for big, small in product(big_mapped_with_size, split_cand)]
         else :
-            big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size)]
+            if is_simple :
+                big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size) if not ((big[0][1] == 32) and (small[0][1] == 32))]
+            else :
+                big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size)]
     # print(f"big_small_comb: {big_small_comb}", file=sys.stderr)
 
     valid_combinations = []
     for comb in big_small_comb:
-        divisors = find_divisors(comb)
+        divisors = find_divisors(comb, data_type)
         # print(f"Divisors for combination {comb}: {divisors}", file=sys.stderr)
         if not divisors:
             continue
@@ -798,7 +1057,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping) :
         external_comb.append([results, shape, comb])
     # print(f"external_comb: {external_comb}", file=sys.stderr)
     
-    config_struct = make_full_comb(external_comb, tile_k, index_mapping, a_flag)
+    config_struct = make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type)
     # print(f"Final config structure: {config_struct}", file=sys.stderr)
 
     return config_struct, swap_flag, m_frag_rank, m_reg_rank
@@ -954,45 +1213,6 @@ def normalize_to_attr(configs, src_attr, dst_attr, method="minmax"):
 
     for cfg, v in zip(configs, norm_values):
         setattr(cfg, dst_attr, v)
-
-#
-# def revise_attr(configs):
-#     ai_mem = np.array([cfg.ai_mem_norm for cfg in configs], dtype=float)
-#     cta = np.array([cfg.cta_per_sm_active_est_norm for cfg in configs], dtype=float)
-#     mem_metric = np.array([cfg.mem_metric_norm for cfg in configs], dtype=float)
-
-#     # transform
-#     ai_mem_inv = 1.0 - ai_mem
-#     cta_centered = np.abs(cta - 0.2) * 5.0 / 4.0
-#     mem_metric_centered = np.abs(mem_metric - 0.5) * 2.0
-
-#     # assign per-config
-#     for i, cfg in enumerate(configs):
-#         cfg.ai_mem_norm_inverse = ai_mem_inv[i]
-#         cfg.cta_per_sm_active_est_norm_centered = cta_centered[i]
-#         cfg.mem_metric_norm_centered = mem_metric_centered[i]
-
-#
-# def normalize_key_metrics(configs) :
-#     # normalize_to_attr(configs, "frag_ratio", "frag_ratio_norm", method="minmax")
-#     # normalize_to_attr(configs, "tile_ratio", "tile_ratio_norm", method="minmax")
-#     # normalize_to_attr(configs, "eff_L_per_mma", "eff_L_per_mma_norm", method="rank")
-#     # normalize_to_attr(configs, "ai_mem", "ai_mem_norm", method="log_minmax")
-#     # normalize_to_attr(configs, "partial_L_per_mma", "partial_L_per_mma_norm", method="rank")
-#     # normalize_to_attr(configs, "tb_to_cap_ratio", "tb_to_cap_ratio_norm", method="rank")
-#     # normalize_to_attr(configs, "partial_overlap_frac", "partial_overlap_frac_norm", method="rank")
-#     # normalize_to_attr(configs, "partial_total_cost_d2_overlap", "partial_total_cost_d2_overlap_norm", method="rank")
-#     # normalize_to_attr(configs, "cta_per_sm_active_est", "cta_per_sm_active_est_norm", method="rank")
-#     normalize_to_attr(configs, "ai_mem", "ai_mem_norm", method="log_minmax")
-#     normalize_to_attr(configs, "partial_L_per_mma", "partial_L_per_mma_norm", method="log_minmax")
-#     normalize_to_attr(configs, "tb_to_cap_ratio", "tb_to_cap_ratio_norm", method="log_minmax")
-#     normalize_to_attr(configs, "partial_total_cost_d2", "partial_total_cost_d2_norm", method="rank")
-#     normalize_to_attr(configs, "partial_total_cost_d2_overlap", "partial_total_cost_d2_overlap_norm", method="rank")
-#     normalize_to_attr(configs, "cta_per_sm_active_est", "cta_per_sm_active_est_norm", method="rank")
-#     normalize_to_attr(configs, "mem_metric", "mem_metric_norm", method="log_minmax")
-
-#     #
-#     revise_attr(configs)
 
 #
 def fill_up_to_k_by_combined_cost(

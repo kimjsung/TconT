@@ -1,12 +1,12 @@
 import os
 import sys
 
-import tc_helper        as tc_helper
-import generators.interface     as interface
+import tc_helper            as tc_helper
+import generators.interface as interface
 
-from generators.kernel_body import tc_code_kernel
-from generators.tensors_variables import tc_code_variables
-from generators.header_define import tc_code_define
+from generators.kernels.kernel_body import tc_code_kernel
+from generators.tensors_variables   import tc_code_variables
+from generators.header_define       import tc_code_define
 
 # check constraints of configurations
 def tc_code_constraints(f, size_FRAG_X, size_FRAG_Y, producer_cnt) :
@@ -42,7 +42,6 @@ def tc_code_constraints(f, size_FRAG_X, size_FRAG_Y, producer_cnt) :
 
 # generate pragma and include headers
 def tc_code_include(f):
-    # f.write("#include <stdio.h>\n")
     f.write("#include <mma.h>\n")
     f.write("#include <cooperative_groups.h>\n")
     f.write("#include <cuda/barrier>\n")
@@ -112,6 +111,10 @@ def tc_code_gen(l_inner_groups, code_path, data_type, opt_pre_computed, check_cu
         l_input_strides     = list()    # stride of internal index for each input tensors
                                         
                                         # input_tensors      # external_index    # internal_index
+        # tc_code_variables(each_inner_group[6], each_inner_group[4], each_inner_group[5], each_inner_group[9],
+        #                                 l_t3_d_decl_var, l_t2_d_decl_var, l_v2_d_decl_var,
+        #                                 l_var_output, l_var_input_left, l_var_input_right, l_cuda_malloc, l_cuda_memcpy,
+        #                                 l_input_strides, data_type)
         tc_code_variables(each_inner_group[6], each_inner_group[4], each_inner_group[5], each_inner_group[9],
                                         l_t3_d_decl_var, l_t2_d_decl_var, l_v2_d_decl_var,
                                         l_var_output, l_var_input_left, l_var_input_right, l_cuda_malloc, l_cuda_memcpy,
@@ -146,15 +149,22 @@ def tc_code_gen(l_inner_groups, code_path, data_type, opt_pre_computed, check_cu
         stride_helper = interface.tc_interface_splited_stride(each_inner_group[4], split_index)
 
         #
+        # tc_code_define(f, each_inner_group[5], each_inner_group[12], each_inner_group[13], each_inner_group[14], input_a, input_b, SMEM_order_a, SMEM_order_b, split_index, check_cuda)
         tc_code_define(f, each_inner_group[5], each_inner_group[12], each_inner_group[13], each_inner_group[14], input_a, input_b, SMEM_order_a, SMEM_order_b, split_index, check_cuda)
 
         #
-        reg_y_padd, reg_x_padd = tc_code_kernel(f, kernel_name, l_t3_d_decl_var, l_t2_d_decl_var, l_v2_d_decl_var,
-                                                each_inner_group[7], each_inner_group[4], each_inner_group[5], l_input_strides, each_inner_group[13],
-                                                fvi_flag, input_a, input_b, input_tensor_a, input_tensor_b, internal_order,
-                                                ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, ld_blk_index_a, ld_blk_index_b, SMEM_order_a, SMEM_order_b,
-                                                split_index, split_input, stride_helper, each_inner_group[11], each_inner_group[14], each_inner_group[15],
-                                                opt_pre_computed, data_type)
+        # reg_y_padd, reg_x_padd = tc_code_kernel(f, kernel_name, l_t3_d_decl_var, l_t2_d_decl_var, l_v2_d_decl_var,
+        #                                         each_inner_group[7], each_inner_group[4], each_inner_group[5], l_input_strides, each_inner_group[13],
+        #                                         fvi_flag, input_a, input_b, input_tensor_a, input_tensor_b, internal_order,
+        #                                         ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, ld_blk_index_a, ld_blk_index_b, SMEM_order_a, SMEM_order_b,
+        #                                         split_index, split_input, stride_helper, each_inner_group[11], each_inner_group[14], each_inner_group[15],
+        #                                         opt_pre_computed, data_type)
+        reg_y_padd, reg_x_padd = tc_code_kernel(f, kernel_name, l_t3_d_decl_var, l_t2_d_decl_var, l_v2_d_decl_var, each_inner_group[9],
+                                                        each_inner_group[7], each_inner_group[4], each_inner_group[5], l_input_strides, each_inner_group[13],
+                                                        fvi_flag, input_a, input_b, input_tensor_a, input_tensor_b, internal_order,
+                                                        ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, ld_blk_index_a, ld_blk_index_b, SMEM_order_a, SMEM_order_b,
+                                                        split_index, split_input, stride_helper, each_inner_group[11], each_inner_group[14], each_inner_group[15],
+                                                        opt_pre_computed, data_type)
         
         # print(f"split_ld_index_a : {split_ld_index_a}, split_ld_index_b : {split_ld_index_b}", file=sys.stderr)
         # print(f"SMEM_order_a : {SMEM_order_a}, SMEM_order_b : {SMEM_order_b}", file=sys.stderr)

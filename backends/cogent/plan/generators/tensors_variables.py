@@ -20,7 +20,7 @@ def tc_code_variables_outputs(l_external_index,
         l_cuda_malloc.append(["dev_t3", "double", output_size])
         l_cuda_memcpy.append(["double", "dev_t3", "host_t3", output_size])
         
-    else:
+    else :
         l_var_output.append(["float *", "dev_t3"])
         l_t3_d_decl_var.append("float *dev_t3")
         l_cuda_malloc.append(["dev_t3", "float", output_size])

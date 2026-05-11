@@ -26,12 +26,12 @@ inline void compile_to_cubin(const std::string& cu_path, const std::string& cubi
     };
     
     // For A100
-    /*const char* opts[] = {
-        "-arch=sm_80",
-        "-I/apps/cuda/12.9.1/include",
-        "--std=c++20",
-        "--use_fast_math"
-    };*/
+    // const char* opts[] = {
+    //     "-arch=sm_80",
+    //     "-I/apps/cuda/12.9.1/include",
+    //     "--std=c++20",
+    //     "--use_fast_math"
+    // };
 
     nvrtcResult res = nvrtcCompileProgram(prog, 4, opts);
 

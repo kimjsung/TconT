@@ -1,8 +1,6 @@
 #
 #   Configuration
 #
-import sys
-
 
 class Config:
     def __init__(self):

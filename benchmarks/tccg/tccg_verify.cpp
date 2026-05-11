@@ -13,7 +13,8 @@
 
 namespace {
 thread_local VerificationTolerance g_verification_tolerance{1e-11, 1e-9};
-void check_correctness_comparison(int total_size, double* output_host, double* output_device);
+thread_local VerificationResult g_verification_result{false, 0, 0, 0, 0};
+VerificationResult check_correctness_comparison(int total_size, double* output_host, double* output_device);
 void check_correctness_tccg_00(double* output, double* input_left, double* input_right, 
                             double* dev_output, const TconT::TCEquation& eq)
 {
@@ -1617,15 +1618,15 @@ void check_correctness_tccg_48(double* output, double* input_left, double* input
 
 
 //
-void check_correctness_comparison(int total_size, double* output_host, double* output_device)
+VerificationResult check_correctness_comparison(int total_size, double* output_host, double* output_device)
 {
     if (total_size < 0) {
         fprintf(stderr, "Invalid total size: %d\n", total_size);
-        return;
+        return VerificationResult{false, 0, total_size, 0, 0};
     }
     if (!output_host || !output_device) {
         fprintf(stderr, "Null pointer detected for output arrays.\n");
-        return;
+        return VerificationResult{false, 0, total_size, 0, 0};
     }
     printf ("=======================================================================\n");
 #ifdef _OPENMP
@@ -1682,6 +1683,8 @@ void check_correctness_comparison(int total_size, double* output_host, double* o
     printf ("Differences: %d / %d (Same: %d, Non-finite: %d)\n", 
         diff, total_size, same, non_finite);
     printf ("=======================================================================\n");
+    g_verification_result = VerificationResult{diff == 0, diff, total_size, same, non_finite};
+    return g_verification_result;
 }
 }  // namespace
 
@@ -1699,7 +1702,7 @@ VerificationTolerance verification_tolerance_for(TconT::ScalarType scalar_type)
 }
 
 namespace {
-void verify_tccg_case_double(
+VerificationResult verify_tccg_case_reference(
     size_t case_index,
     const TconT::TCEquation& eq,
     double* output_reference,
@@ -1707,6 +1710,7 @@ void verify_tccg_case_double(
     double* input_left,
     double* input_right)
 {
+    g_verification_result = VerificationResult{false, 0, 0, 0, 0};
     switch (case_index) {
         case 0: check_correctness_tccg_00(output_reference, input_left, input_right, output_device, eq); break;
         case 1: check_correctness_tccg_01(output_reference, input_left, input_right, output_device, eq); break;
@@ -1760,6 +1764,7 @@ void verify_tccg_case_double(
         default:
             throw std::out_of_range("Unsupported TCCG verification case index");
     }
+    return g_verification_result;
 }
 
 template <typename SrcType>
@@ -1771,9 +1776,34 @@ std::vector<double> convert_to_double(const SrcType* src, size_t count)
     }
     return out;
 }
+
+VerificationResult verify_tccg_case_float(
+    size_t case_index,
+    const TconT::TCEquation& eq,
+    const float* output_device,
+    const float* input_left,
+    const float* input_right)
+{
+    const auto output_size = static_cast<size_t>(compute_tensor_size(eq.modeC, eq.extent));
+    const auto left_size = static_cast<size_t>(compute_tensor_size(eq.modeA, eq.extent));
+    const auto right_size = static_cast<size_t>(compute_tensor_size(eq.modeB, eq.extent));
+
+    std::vector<double> reference_output(output_size, 0.0);
+    auto output = convert_to_double(output_device, output_size);
+    auto left = convert_to_double(input_left, left_size);
+    auto right = convert_to_double(input_right, right_size);
+
+    return verify_tccg_case_reference(
+        case_index,
+        eq,
+        reference_output.data(),
+        output.data(),
+        left.data(),
+        right.data());
+}
 }  // namespace
 
-void verify_tccg_case(
+VerificationResult verify_tccg_case(
     size_t case_index,
     const TconT::TCEquation& eq,
     const void* output_device,
@@ -1792,16 +1822,17 @@ void verify_tccg_case(
             auto output = convert_to_double(static_cast<const double*>(output_device), output_size);
             auto left = convert_to_double(static_cast<const double*>(input_left), left_size);
             auto right = convert_to_double(static_cast<const double*>(input_right), right_size);
-            verify_tccg_case_double(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
-            break;
+            return verify_tccg_case_reference(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
         }
         case TconT::ScalarType::Float32: {
-            std::vector<double> reference_output(output_size, 0.0);
-            auto output = convert_to_double(static_cast<const float*>(output_device), output_size);
-            auto left = convert_to_double(static_cast<const float*>(input_left), left_size);
-            auto right = convert_to_double(static_cast<const float*>(input_right), right_size);
-            verify_tccg_case_double(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
-            break;
+            return verify_tccg_case_float(
+                case_index,
+                eq,
+                static_cast<const float*>(output_device),
+                static_cast<const float*>(input_left),
+                static_cast<const float*>(input_right));
         }
+        default:
+            throw std::invalid_argument("Unsupported scalar type for TCCG verification");
     }
 }

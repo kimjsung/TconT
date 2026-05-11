@@ -401,12 +401,6 @@ PreparedKernel& PreparedKernel::operator=(PreparedKernel&& other) noexcept
 
 std::shared_ptr<TconT::PlanImpl> plan_cogent(const TconT::TCEquation& desc)
 {
-    if (desc.scalar_type != TconT::ScalarType::Float64) {
-        throw std::runtime_error(
-            std::string("Cogent planner currently supports only double kernels. Requested scalar type: ") +
-            TconT::scalar_type_name(desc.scalar_type));
-    }
-
     nlohmann::json input;
     input["modeC"] = desc.modeC;
     input["extentC"] = collect_extents(desc.modeC, desc.extent);
