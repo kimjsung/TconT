@@ -200,6 +200,7 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
             #   Output: List of Configurations 
             #
             index_mapping = tc_mapping.assign_mapping(tensors, index_to_extent)
+            print(f"index mapping : {index_mapping}", file=sys.stderr)
             config_struct, swap_flag, m_frag_rank, m_reg_rank = tc_pruning.index_based_config_selection(tensors, index_to_extent, index_mapping, data_type)
             l_config = tc_alg_config.build_configurations(each_tc, l_info_split_idx, l_representative_problem_size, index_mapping, swap_flag, opt_print, data_type)
             # print(f"index_mapping : {index_mapping}", file=sys.stderr)

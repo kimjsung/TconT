@@ -1,8 +1,8 @@
 import tc_helper
-from generators.kernels.kernel_load import tc_code_kernel_dev_ld
+from generators.kernels.kernel_load    import tc_code_kernel_dev_ld
 from generators.kernels.kernel_compute import tc_code_kernel_dev_compute
-from generators.kernels.kernel_store import tc_code_kernel_dev_scatter_store
-from generators.kernels.blk_opt import optimize_block_order
+from generators.kernels.kernel_store   import tc_code_kernel_dev_scatter_store
+from generators.kernels.blk_opt        import optimize_block_order
 
 
 def _get_optimized_block_order(l_external_index, l_indices_size, l_splited_indices_size,
@@ -201,13 +201,31 @@ def tc_code_kernel_initial(f, l_external_index, l_indices_size, l_splited_indice
 
     # index for thread blocks
     f.write("\t// Index for each Thread Blocks\n")
-    block_order = _get_optimized_block_order(
-        l_external_index, l_indices_size, l_splited_indices_size,
-        input_a, input_b, input_tensor_a, input_tensor_b,
-        internal_order, data_type
-    )
-    f.write(f"\t// block order (outer -> inner): {' -> '.join(block_order)}\n")
-    _write_block_idx_decomposition(f, block_order)
+    f.write("\tint tmp_blkIdx;\n")
+    
+    rev_l_external_index = reversed(l_external_index)
+    len_l_external_index = len(l_external_index)
+    index_count = len_l_external_index
+    for each_index in rev_l_external_index :
+        tmp_str = ""
+        for each_num_index in range(0, index_count - 1) :
+            if each_num_index ==  0:
+                tmp_str = f"numBlk_{l_external_index[each_num_index]}"
+            else :
+                tmp_str = f"numBlk_{l_external_index[each_num_index]} * {tmp_str}"
+        
+        if index_count == len_l_external_index :
+            f.write(f"\tconst int blk_idx_{each_index} = blockIdx.x / ({tmp_str});\n")
+            f.write(f"\ttmp_blkIdx = blockIdx.x % ({tmp_str});\n")
+        else :
+            if index_count == 1 :
+                f.write(f"\tconst int blk_idx_{each_index} = tmp_blkIdx;\n")
+            else :
+                f.write(f"\tconst int blk_idx_{each_index} = tmp_blkIdx / ({tmp_str});\n")
+                f.write(f"\ttmp_blkIdx = tmp_blkIdx % ({tmp_str});\n")
+
+        f.write("\n")
+        index_count = index_count - 1
 
     # index for warp tile
     f.write("\t// Warp related variables\n")
@@ -386,21 +404,21 @@ def tc_code_kernel_initial(f, l_external_index, l_indices_size, l_splited_indice
     }}""")
                 f.write("\n\n")
 
-    # if data_type == "DOUBLE" :
-    #     pass
-    # else :
-    if opt > 1 :
-        size_a = []
-        for idx in input_tensor_a :
-            size_a.append(f"size_{idx}")
-        str_size_a = "*".join(size_a)
-        f.write(f"\tconst int size_tensor_{input_a} = {str_size_a};\n")
+    if data_type == "DOUBLE" :
+        pass
+    else :
+        if opt > 1 :
+            size_a = []
+            for idx in input_tensor_a :
+                size_a.append(f"size_{idx}")
+            str_size_a = "*".join(size_a)
+            f.write(f"\tconst int size_tensor_{input_a} = {str_size_a};\n")
 
-        size_b = []
-        for idx in input_tensor_b :
-            size_b.append(f"size_{idx}")
-        str_size_b = "*".join(size_b)
-        f.write(f"\tconst int size_tensor_{input_b} = {str_size_b};\n\n")
+            size_b = []
+            for idx in input_tensor_b :
+                size_b.append(f"size_{idx}")
+            str_size_b = "*".join(size_b)
+            f.write(f"\tconst int size_tensor_{input_b} = {str_size_b};\n")
 
 #
 def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_splited_indices_size,
@@ -471,10 +489,10 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
     f.write("\t" * tab + "int next_shm_offset = (shm_offset + PIPELINE_STAGES - 1) % PIPELINE_STAGES;\n")
 
     #
-    # if opt % 2 == 0 :
-    #     f.write("\t" * tab + f"int load_ub = max(0, (load_idx + TILE_UNIT - size_internal));\n\n")
-    # else :
-    #     f.write("\n")
+    if opt % 2 == 0 :
+        f.write("\t" * tab + f"int load_ub = max(0, (load_idx + TILE_UNIT - size_internal));\n\n")
+    else :
+        f.write("\n")
 
     #
     f.write("\t" * tab + "pipeline.producer_acquire();\n")
@@ -513,59 +531,59 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
         f.write(" load_idx")
 
     #
-    # if data_type == "DOUBLE" :
-    #     #
-    #     if opt == 1 :
-    #         f.write(");\n")
-    #     elif opt == 2 :
-    #         f.write(",\n")
-    #         f.write("\t" * (tab + 2) + "load_ub);\n")
-    #     elif opt == 3 :
-    #         f.write(",\n")
-    #         f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
-    #     elif opt == 4 :
-    #         f.write(",\n")
-    #         f.write("\t" * (tab + 2) + "load_ub,\n")
-    #         f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
-    #     elif opt == 5 :
-    #         f.write(",\n")
-    #         f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]});\n")
-    #     elif opt == 6 :
-    #         f.write(",\n")
-    #         f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #         f.write("\t" * (tab + 2) + "load_ub);\n")
-    #     elif opt == 7 :
-    #         f.write(",\n")
-    #         if a_split_flag :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[1]});\n")
-    #         elif b_split_flag :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]});\n")
-    #         else :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
-    #     elif opt == 8 :
-    #         f.write(",\n")
-    #         if a_split_flag :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + "load_ub,\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[1]});\n")
-    #         elif b_split_flag :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + "load_ub,\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]});\n")
-    #         else :
-    #             f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
-    #             f.write("\t" * (tab + 2) + "load_ub,\n")
-    #             f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
-    # else :
-    #
-    if opt == 1 :
-        f.write(");\n")
+    if data_type == "DOUBLE" :
+        #
+        if opt == 1 :
+            f.write(");\n")
+        elif opt == 2 :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + "load_ub);\n")
+        elif opt == 3 :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
+        elif opt == 4 :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + "load_ub,\n")
+            f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
+        elif opt == 5 :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]});\n")
+        elif opt == 6 :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+            f.write("\t" * (tab + 2) + "load_ub);\n")
+        elif opt == 7 :
+            f.write(",\n")
+            if a_split_flag :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[1]});\n")
+            elif b_split_flag :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]});\n")
+            else :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
+        elif opt == 8 :
+            f.write(",\n")
+            if a_split_flag :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + "load_ub,\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[1]});\n")
+            elif b_split_flag :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + "load_ub,\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]});\n")
+            else :
+                f.write("\t" * (tab + 2) + f"rng_{frag_partial_index[0]}, rng_{frag_partial_index[1]},\n")
+                f.write("\t" * (tab + 2) + "load_ub,\n")
+                f.write("\t" * (tab + 2) + f"rng_{reg_partial_index[0]}, rng_{reg_partial_index[1]});\n")
     else :
-        f.write(",\n")
-        f.write("\t" * (tab + 2) + f"size_tensor_{input_a}, size_tensor_{input_b});\n")
+        #
+        if opt == 1 :
+            f.write(");\n")
+        else :
+            f.write(",\n")
+            f.write("\t" * (tab + 2) + f"size_tensor_{input_a}, size_tensor_{input_b});\n")
         
 
     #
@@ -585,10 +603,10 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
 
     #
     if opt % 2 == 0 :
-        # if data_type == "DOUBLE" :
-        #     f.write("\t" * tab + f"int compute_ub = max(0, (l + TILE_UNIT - size_internal));\n\n")
-        # else :
-        f.write("\t" * tab + f"int compute_ub = TILE_UNIT - max(0, (l + TILE_UNIT - size_internal));\n\n")
+        if data_type == "DOUBLE" :
+            f.write("\t" * tab + f"int compute_ub = max(0, (l + TILE_UNIT - size_internal));\n\n")
+        else :
+            f.write("\t" * tab + f"int compute_ub = TILE_UNIT - max(0, (l + TILE_UNIT - size_internal));\n\n")
 
     f.write("\t" * tab + "pipeline.consumer_wait();\n")
     f.write("\t" * tab + f"compute_MMA_{opt}(sm_{input_a}, sm_{input_b}, wmiter, wniter, wrow, wcol,\n")
@@ -687,375 +705,365 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
         f.write("\t" * tab + "{\n"); tab += 1
 
     #
-    # if data_type == "DOUBLE" :
-    #     f.write("\t" * tab + "int frag_idx = 0;\n")
-
-    #     #
-    #     f.write("\t" * tab + "#pragma unroll\n")
-    #     f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
-    #     f.write("\t" * tab + "{\n"); tab += 1
-    #     f.write("\t" * tab + f"int base = t3_base_thread + iter_{input_a} * inter_m_stride;\n")
-
-    #     #
-    #     if a_split_flag :
-    #         if opt > 2 :
-    #             f.write("\t" * tab + f"int g_m_iter = (wrow + iter_{input_a}) * TILE_{ld_tile_order_a[1].capitalize()};\n")
-    #     else :
-    #         if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
-    #             f.write("\t" * tab + f"int g_m_iter = wrow + iter_{input_a};\n")
-
-    #     #
-    #     f.write("\t" * tab + "#pragma unroll\n")
-    #     f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
-    #     f.write("\t" * tab + "{\n"); tab += 1
-    #     f.write("\t" * tab + f"int base_iter = base + iter_{input_b} * inter_n_stride;\n")
-        
-    #     #
-    #     if b_split_flag :
-    #         if opt > 2 :
-    #             f.write("\t" * tab + f"int g_n_iter = (wcol + iter_{input_b}) * TILE_{ld_tile_order_b[1].capitalize()};\n")
-    #     else :
-    #         if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
-    #             f.write("\t" * tab + f"int g_n_iter = wcol + iter_{input_b};\n")
-
-    #     #
-    #     f.write("\t" * tab + "#pragma unroll\n")
-    #     f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-    #     f.write("\t" * tab + "{\n"); tab += 1
-
-    #     #
-    #     if a_split_flag :
-    #         if opt > 2 :
-    #             f.write("\t" * tab + f"int m_base = g_m_iter + (cnt_{input_a} << 3);\n")
-    #     else :
-    #         f.write("\t" * tab + f"int m_base = (cnt_{input_a} << 3);\n") 
-        
-    #     #
-    #     f.write("\t" * tab + f"int base_{input_a} = base_iter + (cnt_{input_a} << 3) * intra_stride;\n")
-
-    #     #
-    #     f.write("\t" * tab + "#pragma unroll\n")
-    #     f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++, frag_idx++)\n")
-    #     f.write("\t" * tab + "{\n"); tab += 1
-
-    #     #
-    #     if b_split_flag :
-    #         if opt > 2 :
-    #             f.write("\t" * tab + f"int n_base = g_n_iter + (cnt_{input_b} << 3);\n")
-    #     else :
-    #         f.write("\t" * tab + f"int n_base = (cnt_{input_b} << 3);\n")
-
-    #     #
-    #     f.write("\t" * tab + f"int dst = base_{input_a} + (cnt_{input_b} << 3);\n")
-
-    #     #
-    #     if a_split_flag and b_split_flag :
-    #         partial_a = collapsed_a[0]
-    #         partial_b = collapsed_b[0]
-    #     elif a_split_flag :
-    #         if opt > 2 :
-    #             partial_a = collapsed_a[0]
-    #         if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
-    #             reg_partial_b = ld_tile_order_b[0]
-    #         if opt > 4 :
-    #             frag_partial_b = ld_tile_order_b[1]
-    #     elif b_split_flag :
-    #         if opt > 2 :
-    #             partial_b = collapsed_b[0]
-    #         if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
-    #             reg_partial_a = ld_tile_order_a[0]
-    #         if opt > 4 :
-    #             frag_partial_a = ld_tile_order_a[1]
-    #     else :
-    #         if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
-    #             reg_partial_a = ld_tile_order_a[0]
-    #             reg_partial_b = ld_tile_order_b[0]
-    #         if opt > 4 :
-    #             frag_partial_a = ld_tile_order_a[1]
-    #             frag_partial_b = ld_tile_order_b[1]
-
-    #     #
-    #     if opt == 1 or opt == 2 :
-    #         f.write("\t" * tab + "nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
-    #     else :
-    #         #
-    #         full_condition = []
-    #         scatter_store = []
-            
-    #         #
-    #         if a_split_flag and b_split_flag :
-    #             full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
-    #             full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
-    #             scatter_store.append(f"scatter_store_tail(&dev_t3[dst], m_base, n_base, rng_{partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #         elif a_split_flag :
-    #             #
-    #             if opt == 3 or opt == 4 :
-    #                 full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
-    #                 full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], m_base, g_n_iter, rng_{partial_a}, rng_{reg_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 5 or opt == 6 :
-    #                 full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{partial_a}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 7 or opt == 8 :
-    #                 full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
-    #                 full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], m_base, g_n_iter, n_base, rng_{partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #         elif b_split_flag :
-    #             #
-    #             if opt == 3 or opt == 4 :
-    #                 full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], g_m_iter, n_base, rng_{reg_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 5 or opt == 6 :
-    #                 full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{frag_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 7 or opt == 8 :
-    #                 full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
-    #                 full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], g_m_iter, m_base, n_base, rng_{reg_partial_a}, rng_{frag_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #         else :
-    #             #
-    #             if opt == 3 or opt == 4 :
-    #                 full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
-    #                 full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], g_m_iter, g_n_iter, rng_{reg_partial_a}, rng_{reg_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 5 or opt == 6 :
-    #                 full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{frag_partial_a}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-    #             elif opt == 7 or opt == 8 :
-    #                 full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
-    #                 full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-    #                 full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
-    #                 full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-    #                 scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], g_m_iter, m_base, g_n_iter, n_base, rng_{reg_partial_a}, rng_{frag_partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
-            
-    #         #
-    #         full_condition.append("(((uintptr_t)dst & 0x1F) == 0)")
-    #         full_condition.append("((intra_stride & 1) == 0)")
-    #         str_full_condition = " && ".join(full_condition)
-    #         str_scatter_store = " ".join(scatter_store)
-
-    #         #
-    #         f.write("\t" * tab + f"bool full = ({str_full_condition});\n")
-    #         f.write("\t" * tab + f"if(full)\n")
-    #         f.write("\t" * tab + "{\n"); tab += 1
-    #         f.write("\t" * tab + f"nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
-    #         f.write("\t" * tab + "}\n")
-    #         f.write("\t" * tab + "else\n")
-    #         f.write("\t" * tab + "{\n"); tab += 1
-    #         f.write("\t" * tab + f"{str_scatter_store}"); tab -= 1
-    #         f.write("\t" * tab + "}\n"); tab -= 1
-
-    #     #
-    #     for i in range(tab) :
-    #         f.write("\t" * tab + "}\n"); tab -= 1
-    # #
-    # else :
-    reg_partial_a = ld_tile_order_a[0]
-    reg_partial_b = ld_tile_order_b[0]
-    frag_partial_a = ld_tile_order_a[1]
-    frag_partial_b = ld_tile_order_b[1]
-
-    left_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_a[1])
-    right_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_b[1])
-
     if data_type == "DOUBLE" :
-        frag_size = 8
-        cnt_offset = 3
-    else :
-        frag_size = 16
-        cnt_offset = 4
+        f.write("\t" * tab + "int frag_idx = 0;\n")
 
-    f.write("\t" * tab + "#pragma unroll\n")
-    f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
-    f.write("\t" * tab + "{\n"); tab += 1
-    
-    #
-    if a_split_flag :
-        if opt > 2 :
-            f.write("\t" * tab + f"int g_m_iter = (wrow + iter_{input_a}) * TILE_{frag_partial_a.capitalize()};\n")
-            f.write("\t" * tab + f"if(g_m_iter >= rng_{reg_partial_a[0]})\n")
-            f.write("\t" * (tab + 1) + "continue;\n")
-            f.write("\t" * tab + f"int valid_{frag_partial_a} = min(rng_{reg_partial_a[0]} - g_m_iter, TILE_{frag_partial_a.capitalize()});\n")
-    else :
-        if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
-            f.write("\t" * tab + f"int g_m_iter = wrow + iter_{input_a};\n")
-            f.write("\t" * tab + f"if(g_m_iter >= rng_{reg_partial_a})\n")
-            f.write("\t" * (tab + 1) + "continue;\n")
-    
-    f.write("\t" * tab + f"int base = t3_base_thread + iter_{input_a} * inter_m_stride;\n")
-    f.write("\t" * tab + f"int frag_idx0 = iter_{input_a} * wniter;\n\n")
+        #
+        f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
+        f.write("\t" * tab + "{\n"); tab += 1
+        f.write("\t" * tab + f"int base = t3_base_thread + iter_{input_a} * inter_m_stride;\n")
 
-    #
-    f.write("\t" * tab + "#pragma unroll\n")
-    f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
-    f.write("\t" * tab + "{\n"); tab += 1
-    
-    #
-    if b_split_flag :
-        if opt > 2 :
-            f.write("\t" * tab + f"int g_n_iter = (wcol + iter_{input_b}) * TILE_{frag_partial_b.capitalize()};\n")
-            f.write("\t" * tab + f"if(g_n_iter >= rng_{reg_partial_b[0]})\n")
-            f.write("\t" * (tab + 1) + "continue;\n")
-            f.write("\t" * tab + f"int valid_{frag_partial_b} = min(rng_{reg_partial_b[0]} - g_n_iter, TILE_{frag_partial_b.capitalize()});\n")
-    else :
-        if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
-            f.write("\t" * tab + f"int g_n_iter = wcol + iter_{input_b};\n")
-            f.write("\t" * tab + f"if(g_n_iter >= rng_{reg_partial_b})\n")
-            f.write("\t" * (tab + 1) + "continue;\n")
+        #
+        if a_split_flag :
+            if opt > 2 :
+                f.write("\t" * tab + f"int g_m_iter = (wrow + iter_{input_a}) * TILE_{ld_tile_order_a[1].capitalize()};\n")
+        else :
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
+                f.write("\t" * tab + f"int g_m_iter = wrow + iter_{input_a};\n")
 
-    f.write("\t" * tab + f"int base_iter = base + iter_{input_b} * inter_n_stride;\n")
-    f.write("\t" * tab + f"int frag_idx1 = frag_idx0 + iter_{input_b};\n\n")
+        #
+        f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
+        f.write("\t" * tab + "{\n"); tab += 1
+        f.write("\t" * tab + f"int base_iter = base + iter_{input_b} * inter_n_stride;\n")
+        
+        #
+        if b_split_flag :
+            if opt > 2 :
+                f.write("\t" * tab + f"int g_n_iter = (wcol + iter_{input_b}) * TILE_{ld_tile_order_b[1].capitalize()};\n")
+        else :
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
+                f.write("\t" * tab + f"int g_n_iter = wcol + iter_{input_b};\n")
 
-    #
-    if left_frag_size == frag_size * 2 :
+        #
         f.write("\t" * tab + "#pragma unroll\n")
         f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
-        f.write("\t" * tab + f"int m_base = (cnt_{input_a} << {cnt_offset});\n")
 
         #
         if a_split_flag :
             if opt > 2 :
-                f.write("\t" * tab + f"int frag_valid_rows = valid_{frag_partial_a} - m_base;\n")
-                f.write("\t" * tab + "if(frag_valid_rows <= 0)\n")
-                f.write("\t" * (tab + 1) + "continue;\n")
-                f.write("\t" * tab + f"frag_valid_rows = min(frag_valid_rows, {frag_size});\n")
-        #
+                f.write("\t" * tab + f"int m_base = g_m_iter + (cnt_{input_a} << 3);\n")
         else :
-            if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                f.write("\t" * tab + f"if(m_base >= rng_{frag_partial_a})\n")
-                f.write("\t" * (tab + 1) + "continue;\n")
-                f.write("\t" * tab + f"int frag_valid_rows = min(rng_{frag_partial_a} - m_base, {frag_size});\n")
-    
-        f.write("\t" * tab + f"int base_{input_a} = base_iter + m_base * intra_stride;\n")
-        f.write("\t" * tab + f"int frag_idx2 = (frag_idx1 * {input_a}_frag_cnt) + cnt_{input_a};\n\n")
-    #
-    else :
-        if a_split_flag :
-            if opt > 2 :
-                f.write("\t" * tab + f"int frag_valid_rows = valid_{frag_partial_a};\n")
-                f.write("\t" * tab + f"frag_valid_rows = min(frag_valid_rows, {frag_size});\n")
-        else :
-            if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                f.write("\t" * tab + f"int frag_valid_rows = min(rng_{frag_partial_a}, {frag_size});\n")
-
-        f.write("\t" * tab + f"int base_{input_a} = base_iter;\n")
-
-    #
-    if right_frag_size == frag_size * 2 :
-        f.write("\t" * tab + "#pragma unroll\n")
-        f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-        f.write("\t" * tab + "{\n"); tab += 1
-        f.write("\t" * tab + f"int n_base = (cnt_{input_b} << {cnt_offset});\n")
-
-        #
-        if b_split_flag :
-            if opt > 2 :
-                f.write("\t" * tab + f"int frag_valid_cols = valid_{frag_partial_b} - n_base;\n")
-                f.write("\t" * tab + "if(frag_valid_cols <= 0)\n")
-                f.write("\t" * (tab + 1) + "continue;\n")
-                f.write("\t" * tab + f"frag_valid_cols = min(frag_valid_cols, {frag_size});\n")
-        #
-        else :
-            if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                f.write("\t" * tab + f"if(n_base >= rng_{frag_partial_b})\n")
-                f.write("\t" * (tab + 1) + "continue;\n")
-                f.write("\t" * tab + f"int frag_valid_cols = min(rng_{frag_partial_b} - n_base, {frag_size});\n")
-
-        f.write("\t" * tab + f"int dst = base_{input_a} + n_base;\n")
-
-        if left_frag_size == frag_size * 2 :
-            f.write("\t" * tab + f"int frag_idx = (frag_idx2 * {input_b}_frag_cnt) + cnt_{input_b};\n")
-        else :
-            f.write("\t" * tab + f"int frag_idx = (frag_idx1 * {input_b}_frag_cnt) + cnt_{input_b};\n")
-    #
-    else :
-        if b_split_flag :
-            if opt > 2 :
-                f.write("\t" * tab + f"int frag_valid_cols = valid_{frag_partial_b};\n")
-                f.write("\t" * tab + f"frag_valid_cols = min(frag_valid_cols, {frag_size});\n")
-        else :
-            if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                f.write("\t" * tab + f"int frag_valid_cols = min(rng_{frag_partial_b}, {frag_size});\n")
-
-        if left_frag_size == frag_size * 2 :
-            f.write("\t" * tab + f"int frag_idx = frag_idx2;\n")
-        else :
-            f.write("\t" * tab + f"int frag_idx = frag_idx1;\n")
-        f.write("\t" * tab + f"int dst = base_{input_a};\n")
-
-    #
-    if opt == 1 or opt == 2 :
-        f.write("\t" * tab + "nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
-    #
-    else :
-        full_condition = []
-        scatter_store = []
+            f.write("\t" * tab + f"int m_base = (cnt_{input_a} << 3);\n") 
         
+        #
+        f.write("\t" * tab + f"int base_{input_a} = base_iter + (cnt_{input_a} << 3) * intra_stride;\n")
+
+        #
+        f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++, frag_idx++)\n")
+        f.write("\t" * tab + "{\n"); tab += 1
+
+        #
+        if b_split_flag :
+            if opt > 2 :
+                f.write("\t" * tab + f"int n_base = g_n_iter + (cnt_{input_b} << 3);\n")
+        else :
+            f.write("\t" * tab + f"int n_base = (cnt_{input_b} << 3);\n")
+
+        #
+        f.write("\t" * tab + f"int dst = base_{input_a} + (cnt_{input_b} << 3);\n")
+
         #
         if a_split_flag and b_split_flag :
-            full_condition.append(f"(frag_valid_rows == {frag_size})")
-            full_condition.append(f"(frag_valid_cols == {frag_size})")
-            scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
-        #
+            partial_a = collapsed_a[0]
+            partial_b = collapsed_b[0]
         elif a_split_flag :
-            #
-            if opt == 3 or opt == 4 :
-                full_condition.append(f"(frag_valid_rows == {frag_size})")
-                scatter_store.append("scatter_store_tail0(&dev_t3[dst], frag_valid_rows, intra_stride, t3_frag[frag_idx]);\n")
-            #
-            elif opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                full_condition.append(f"(frag_valid_rows == {frag_size})")
-                full_condition.append(f"(frag_valid_cols == {frag_size})")
-                scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
-        #
+            if opt > 2 :
+                partial_a = collapsed_a[0]
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
+                reg_partial_b = ld_tile_order_b[0]
+            if opt > 4 :
+                frag_partial_b = ld_tile_order_b[1]
         elif b_split_flag :
-            #
-            if opt == 3 or opt == 4 :
-                full_condition.append(f"(frag_valid_cols == {frag_size})")
-                scatter_store.append("scatter_store_tail1(&dev_t3[dst], frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
-            #
-            elif opt == 5 or opt == 6 or opt == 7 or opt == 8:
-                full_condition.append(f"(frag_valid_rows == {frag_size})")
-                full_condition.append(f"(frag_valid_cols == {frag_size})")
-                scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            if opt > 2 :
+                partial_b = collapsed_b[0]
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
+                reg_partial_a = ld_tile_order_a[0]
+            if opt > 4 :
+                frag_partial_a = ld_tile_order_a[1]
+        else :
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 :
+                reg_partial_a = ld_tile_order_a[0]
+                reg_partial_b = ld_tile_order_b[0]
+            if opt > 4 :
+                frag_partial_a = ld_tile_order_a[1]
+                frag_partial_b = ld_tile_order_b[1]
+
         #
+        if opt == 1 or opt == 2 :
+            f.write("\t" * tab + "nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
         else :
             #
-            if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
-                full_condition.append(f"(frag_valid_rows == {frag_size})")
-                full_condition.append(f"(frag_valid_cols == {frag_size})")
-                scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            full_condition = []
+            scatter_store = []
+            
+            #
+            if a_split_flag and b_split_flag :
+                full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
+                full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
+                scatter_store.append(f"scatter_store_tail(&dev_t3[dst], m_base, n_base, rng_{partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+            elif a_split_flag :
+                #
+                if opt == 3 or opt == 4 :
+                    full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
+                    full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
+                    scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], m_base, g_n_iter, rng_{partial_a}, rng_{reg_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 5 or opt == 6 :
+                    full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
+                    full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
+                    scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{partial_a}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 7 or opt == 8 :
+                    full_condition.append(f"(m_base + 8 <= rng_{partial_a})")
+                    full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
+                    full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
+                    scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], m_base, g_n_iter, n_base, rng_{partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+            elif b_split_flag :
+                #
+                if opt == 3 or opt == 4 :
+                    full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
+                    full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
+                    scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], g_m_iter, n_base, rng_{reg_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 5 or opt == 6 :
+                    full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
+                    full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
+                    scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{frag_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 7 or opt == 8 :
+                    full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
+                    full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
+                    full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
+                    scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], g_m_iter, m_base, n_base, rng_{reg_partial_a}, rng_{frag_partial_a}, rng_{partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+            else :
+                #
+                if opt == 3 or opt == 4 :
+                    full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
+                    full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
+                    scatter_store.append(f"scatter_store_tail0(&dev_t3[dst], g_m_iter, g_n_iter, rng_{reg_partial_a}, rng_{reg_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 5 or opt == 6 :
+                    full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
+                    full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
+                    scatter_store.append(f"scatter_store_tail1(&dev_t3[dst], m_base, n_base, rng_{frag_partial_a}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+                elif opt == 7 or opt == 8 :
+                    full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
+                    full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
+                    full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
+                    full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
+                    scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], g_m_iter, m_base, g_n_iter, n_base, rng_{reg_partial_a}, rng_{frag_partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
+            
+            #
+            full_condition.append("(((uintptr_t)dst & 0x1F) == 0)")
+            full_condition.append("((intra_stride & 1) == 0)")
+            str_full_condition = " && ".join(full_condition)
+            str_scatter_store = " ".join(scatter_store)
+
+            #
+            f.write("\t" * tab + f"bool full = ({str_full_condition});\n")
+            f.write("\t" * tab + f"if(full)\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
+            f.write("\t" * tab + "}\n")
+            f.write("\t" * tab + "else\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"{str_scatter_store}"); tab -= 1
+            f.write("\t" * tab + "}\n"); tab -= 1
+
+        #
+        for i in range(tab) :
+            f.write("\t" * tab + "}\n"); tab -= 1
+    #
+    else :
+        reg_partial_a = ld_tile_order_a[0]
+        reg_partial_b = ld_tile_order_b[0]
+        frag_partial_a = ld_tile_order_a[1]
+        frag_partial_b = ld_tile_order_b[1]
+
+        left_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_a[1])
+        right_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_b[1])
+
+        f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
+        f.write("\t" * tab + "{\n"); tab += 1
         
         #
-        if data_type == "DOUBLE" :
-            full_condition.append("(((uintptr_t)dst & 0xF) == 0)")
+        if a_split_flag :
+            if opt > 2 :
+                f.write("\t" * tab + f"int g_m_iter = (wrow + iter_{input_a}) * TILE_{frag_partial_a.capitalize()};\n")
+                f.write("\t" * tab + f"if(g_m_iter >= rng_{reg_partial_a[0]})\n")
+                f.write("\t" * (tab + 1) + "continue;\n")
+                f.write("\t" * tab + f"int valid_{frag_partial_a} = min(rng_{reg_partial_a[0]} - g_m_iter, TILE_{frag_partial_a.capitalize()});\n")
         else :
-            full_condition.append("(((uintptr_t)dst & 0x7) == 0)")
-        full_condition.append("((intra_stride & 0x1) == 0)")
-        str_full_condition = " && ".join(full_condition)
-        str_scatter_store = " ".join(scatter_store)
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
+                f.write("\t" * tab + f"int g_m_iter = wrow + iter_{input_a};\n")
+                f.write("\t" * tab + f"if(g_m_iter >= rng_{reg_partial_a})\n")
+                f.write("\t" * (tab + 1) + "continue;\n")
+        
+        f.write("\t" * tab + f"int base = t3_base_thread + iter_{input_a} * inter_m_stride;\n")
+        f.write("\t" * tab + f"int frag_idx0 = iter_{input_a} * wniter;\n\n")
 
         #
-        f.write("\t" * tab + f"bool full = ({str_full_condition});\n")
-        f.write("\t" * tab + f"if(full)\n")
+        f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
-        f.write("\t" * tab + f"nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
-        f.write("\t" * tab + "}\n")
-        f.write("\t" * tab + "else\n")
-        f.write("\t" * tab + "{\n"); tab += 1
-        f.write("\t" * tab + f"{str_scatter_store}"); tab -= 1
-        f.write("\t" * tab + "}\n"); tab -= 1
+        
+        #
+        if b_split_flag :
+            if opt > 2 :
+                f.write("\t" * tab + f"int g_n_iter = (wcol + iter_{input_b}) * TILE_{frag_partial_b.capitalize()};\n")
+                f.write("\t" * tab + f"if(g_n_iter >= rng_{reg_partial_b[0]})\n")
+                f.write("\t" * (tab + 1) + "continue;\n")
+                f.write("\t" * tab + f"int valid_{frag_partial_b} = min(rng_{reg_partial_b[0]} - g_n_iter, TILE_{frag_partial_b.capitalize()});\n")
+        else :
+            if opt == 3 or opt == 4 or opt == 7 or opt == 8 : # reg mapped partial
+                f.write("\t" * tab + f"int g_n_iter = wcol + iter_{input_b};\n")
+                f.write("\t" * tab + f"if(g_n_iter >= rng_{reg_partial_b})\n")
+                f.write("\t" * (tab + 1) + "continue;\n")
 
-    #
-    for i in range(tab) :
-        f.write("\t" * tab + "}\n"); tab -= 1
+        f.write("\t" * tab + f"int base_iter = base + iter_{input_b} * inter_n_stride;\n")
+        f.write("\t" * tab + f"int frag_idx1 = frag_idx0 + iter_{input_b};\n\n")
+
+        #
+        if left_frag_size == 32 :
+            f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"int m_base = (cnt_{input_a} << 4);\n")
+
+            #
+            if a_split_flag :
+                if opt > 2 :
+                    f.write("\t" * tab + f"int frag_valid_rows = valid_{frag_partial_a} - m_base;\n")
+                    f.write("\t" * tab + "if(frag_valid_rows <= 0)\n")
+                    f.write("\t" * (tab + 1) + "continue;\n")
+                    f.write("\t" * tab + f"frag_valid_rows = min(frag_valid_rows, 16);\n")
+            #
+            else :
+                if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    f.write("\t" * tab + f"if(m_base >= rng_{frag_partial_a})\n")
+                    f.write("\t" * (tab + 1) + "continue;\n")
+                    f.write("\t" * tab + f"int frag_valid_rows = min(rng_{frag_partial_a} - m_base, 16);\n")
+        
+            f.write("\t" * tab + f"int base_{input_a} = base_iter + m_base * intra_stride;\n")
+            f.write("\t" * tab + f"int frag_idx2 = (frag_idx1 * {input_a}_frag_cnt) + cnt_{input_a};\n\n")
+        #
+        else :
+            if a_split_flag :
+                if opt > 2 :
+                    f.write("\t" * tab + f"int frag_valid_rows = valid_{frag_partial_a};\n")
+                    f.write("\t" * tab + "frag_valid_rows = min(frag_valid_rows, 16);\n")
+            else :
+                if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    f.write("\t" * tab + f"int frag_valid_rows = min(rng_{frag_partial_a}, 16);\n")
+
+            f.write("\t" * tab + f"int base_{input_a} = base_iter;\n")
+
+        #
+        if right_frag_size == 32 :
+            f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"int n_base = (cnt_{input_b} << 4);\n")
+
+            #
+            if b_split_flag :
+                if opt > 2 :
+                    f.write("\t" * tab + f"int frag_valid_cols = valid_{frag_partial_b} - n_base;\n")
+                    f.write("\t" * tab + "if(frag_valid_cols <= 0)\n")
+                    f.write("\t" * (tab + 1) + "continue;\n")
+                    f.write("\t" * tab + f"frag_valid_cols = min(frag_valid_cols, 16);\n")
+            #
+            else :
+                if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    f.write("\t" * tab + f"if(n_base >= rng_{frag_partial_b})\n")
+                    f.write("\t" * (tab + 1) + "continue;\n")
+                    f.write("\t" * tab + f"int frag_valid_cols = min(rng_{frag_partial_b} - n_base, 16);\n")
+
+            f.write("\t" * tab + f"int dst = base_{input_a} + n_base;\n")
+
+            if left_frag_size == 32 :
+                f.write("\t" * tab + f"int frag_idx = (frag_idx2 * {input_b}_frag_cnt) + cnt_{input_b};\n")
+            else :
+                f.write("\t" * tab + f"int frag_idx = (frag_idx1 * {input_b}_frag_cnt) + cnt_{input_b};\n")
+        #
+        else :
+            if b_split_flag :
+                if opt > 2 :
+                    f.write("\t" * tab + f"int frag_valid_cols = valid_{frag_partial_b};\n")
+                    f.write("\t" * tab + "frag_valid_cols = min(frag_valid_cols, 16);\n")
+            else :
+                if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    f.write("\t" * tab + f"int frag_valid_cols = min(rng_{frag_partial_b}, 16);\n")
+
+            if left_frag_size == 32 :
+                f.write("\t" * tab + f"int frag_idx = frag_idx2;\n")
+            else :
+                f.write("\t" * tab + f"int frag_idx = frag_idx1;\n")
+            f.write("\t" * tab + f"int dst = base_{input_a};\n")
+
+        #
+        if opt == 1 or opt == 2 :
+            f.write("\t" * tab + "nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
+        #
+        else :
+            full_condition = []
+            scatter_store = []
+            
+            #
+            if a_split_flag and b_split_flag :
+                full_condition.append("(frag_valid_rows == 16)")
+                full_condition.append("(frag_valid_cols == 16)")
+                scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            #
+            elif a_split_flag :
+                #
+                if opt == 3 or opt == 4 :
+                    full_condition.append("(frag_valid_rows == 16)")
+                    scatter_store.append("scatter_store_tail0(&dev_t3[dst], frag_valid_rows, intra_stride, t3_frag[frag_idx]);\n")
+                #
+                elif opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    full_condition.append("(frag_valid_rows == 16)")
+                    full_condition.append("(frag_valid_cols == 16)")
+                    scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            #
+            elif b_split_flag :
+                #
+                if opt == 3 or opt == 4 :
+                    full_condition.append("(frag_valid_cols == 16)")
+                    scatter_store.append("scatter_store_tail1(&dev_t3[dst], frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+                #
+                elif opt == 5 or opt == 6 or opt == 7 or opt == 8:
+                    full_condition.append("(frag_valid_rows == 16)")
+                    full_condition.append("(frag_valid_cols == 16)")
+                    scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            #
+            else :
+                #
+                if opt == 5 or opt == 6 or opt == 7 or opt == 8 :
+                    full_condition.append("(frag_valid_rows == 16)")
+                    full_condition.append("(frag_valid_cols == 16)")
+                    scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
+            
+            #
+            full_condition.append("(((uintptr_t)dst & 0x7) == 0)")
+            full_condition.append("((intra_stride & 0x1) == 0)")
+            str_full_condition = " && ".join(full_condition)
+            str_scatter_store = " ".join(scatter_store)
+
+            #
+            f.write("\t" * tab + f"bool full = ({str_full_condition});\n")
+            f.write("\t" * tab + f"if(full)\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"nvcuda::wmma::store_matrix_sync(&dev_t3[dst], t3_frag[frag_idx], intra_stride, nvcuda::wmma::mem_row_major);\n"); tab -= 1
+            f.write("\t" * tab + "}\n")
+            f.write("\t" * tab + "else\n")
+            f.write("\t" * tab + "{\n"); tab += 1
+            f.write("\t" * tab + f"{str_scatter_store}"); tab -= 1
+            f.write("\t" * tab + "}\n"); tab -= 1
+
+        #
+        for i in range(tab) :
+            f.write("\t" * tab + "}\n"); tab -= 1
 
     f.write("}\n\n")
 

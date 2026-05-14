@@ -193,7 +193,7 @@ def _assign_double_internal(
             tile_idx, step_idx = step_idx, tile_idx
         
     a_side, no_a = (t2_indices, v2_indices) if out_fvi in t2_indices else (v2_indices, t2_indices)
-    frag_a, loop_a, block_a, frag_no_a, loop_no_a, block_no_a = _assign_fragment_and_loop(internal_indices, a_side, no_a, t3_indices, size_map)
+    frag_a, loop_a, block_a, frag_no_a, loop_no_a, block_no_a = _assign_fragment_and_loop(internal_indices, a_side, no_a, t3_indices, size_map, out_fvi)
     loop_order = [i for i in [loop_no_a, loop_a, frag_no_a, frag_a] if i]
 
     return FragmentAssignmentResult(

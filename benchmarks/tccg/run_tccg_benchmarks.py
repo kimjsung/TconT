@@ -4,6 +4,7 @@ import argparse
 import csv
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ RESULT_PATTERN = re.compile(
     r"operations=(?P<operations>\d+) time_ms=(?P<time_ms>[0-9.]+) "
     r"gflops=(?P<gflops>[0-9.]+) validation=(?P<validation>\w+)$")
 
+PRECISIONS = ("fp64", )
 
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[2]
@@ -19,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     default_output_dir = Path(__file__).resolve().parent / "results"
 
     parser = argparse.ArgumentParser(
-        description="Run all TCCG benchmarks for FP64 and FP32, and save per-precision CSV files.")
+        description="Run all TCCG benchmarks for FP64 and TF32, and save per-precision CSV files.")
     parser.add_argument(
         "--binary",
         type=Path,
@@ -33,8 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--start",
         type=int,
-        default=0,
-        help="First equation index to run (default: 0)")
+        default=1,
+        help="First equation index to run (default: 1)")
     parser.add_argument(
         "--end",
         type=int,
@@ -93,6 +95,10 @@ def run_benchmark(binary: Path, equation: int, precision: str, verify: bool) -> 
     }
 
 
+def log(message: str) -> None:
+    print(message, flush=True)
+
+
 def write_results(path: Path, rows: list[dict]) -> None:
     fieldnames = [
         "equation",
@@ -121,20 +127,32 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     verify = not args.no_verify
 
-    for precision in ("fp64", "fp32"):
+    log(f"Python executable: {sys.executable}")
+    log(f"Benchmark binary : {args.binary}")
+    log(f"Output directory : {args.output_dir}")
+    log(f"Equation range   : {args.start}..{args.end}")
+    log(f"Verification     : {'enabled' if verify else 'disabled'}")
+
+    for precision in PRECISIONS:
         rows = []
         output_path = args.output_dir / f"tccg_{precision}_results.csv"
+        log(f"Starting precision sweep: {precision}")
 
         for equation in range(args.start, args.end + 1):
+            log(f"[{precision}] starting equation={equation}")
             row = run_benchmark(args.binary, equation, precision, verify)
             rows.append(row)
-            print(
+            log(
                 f"[{precision}] equation={row['equation']} "
                 f"operations={row['operation_count']} time_ms={row['time_ms']} "
                 f"gflops={row['gflops']} validation={row['validation']}")
+            if row["error_message"]:
+                log(f"[{precision}] equation={row['equation']} error={row['error_message']}")
+                if row["raw_output"]:
+                    log(f"[{precision}] equation={row['equation']} raw_output:\n{row['raw_output']}")
 
         write_results(output_path, rows)
-        print(f"Saved {precision} results to {output_path}")
+        log(f"Saved {precision} results to {output_path}")
 
     return 0
 

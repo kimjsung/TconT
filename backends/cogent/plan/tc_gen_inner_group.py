@@ -284,6 +284,9 @@ def make_kernel_name(l_kernal_binary):
         rhs_indices = right_indices
         lhs_indices = left_indices
 
+    with open("config.txt", "a") as f :
+        f.write(f"{warp_shape}, {stage}, {tile_sizes}\n")
+
     label_map = _build_canonical_index_labels(output_indices, lhs_indices, rhs_indices, tile_sizes)
     
     dtype_map = {'DOUBLE': 'FP64', 'FLOAT': 'TF32'}
@@ -320,7 +323,7 @@ def make_kernel_name(l_kernal_binary):
     ]
 
     kernel_bin = 'kernel__' + '__'.join(short_parts)
-        
+    
     return kernel_bin
 
 
@@ -441,7 +444,9 @@ def make_launch_config(l_kernal_binary, kernel_bin, l_external_index, l_internal
     #
     internal_tile = tile_sizes[0][1]
     size_internal = index_to_extent[internal_index]
-
+    import sys
+    print(f"smem_x : {smem_x * internal_tile + padding[0]}",file=sys.stderr)
+    print(f"smem_y : {smem_y * internal_tile + padding[1]}",file=sys.stderr)
     #
     launch_config = {
         "kernel_bin" : kernel_bin,
@@ -457,5 +462,5 @@ def make_launch_config(l_kernal_binary, kernel_bin, l_external_index, l_internal
         "kernel_name" : f"kernel_{kernel_num}",
         "swap_flag" : swap_flag
     }
-
+    
     return launch_config 

@@ -5,7 +5,7 @@ TconT is a tensor contraction workspace built around backend-specific planning a
 Current repository status:
 - `tcont` shared library builds successfully with CMake.
 - `bench_tccg` benchmark builds and runs through the `plan -> prepare -> benchmark` flow.
-- The benchmark supports both FP64 and FP32 benchmark case sets.
+- The benchmark supports both FP64 and TF32 benchmark case sets.
 - The benchmark can optionally run correctness verification with `--verify`.
 - The repository includes a batch runner that executes all TCCG equations and stores per-precision CSV results.
 
@@ -78,7 +78,7 @@ The TCCG benchmark is already split by responsibility:
 - `tccg_init.hpp`: benchmark tensor initialization
 - `tccg_verify.*`: correctness checking and tolerance handling
 - `bench_tccg.cpp`: runner
-- `run_tccg_benchmarks.py`: full FP64/FP32 sweep and CSV export
+- `run_tccg_benchmarks.py`: full FP64/TF32 sweep and CSV export
 
 ## Run `bench_tccg`
 
@@ -100,24 +100,25 @@ Run with correctness verification:
 ./build/benchmarks/tccg/bench_tccg -b 12 --verify
 ```
 
-Run the FP32 case set:
+Run the TF32 case set:
 
 ```bash
-./build/benchmarks/tccg/bench_tccg -b 12 --fp32 --verify
+./build/benchmarks/tccg/bench_tccg -b 12 --tf32 --verify
 ```
 
 Current CLI options:
 
 - `-b`, `--benchmark <id>`: select a TCCG benchmark case
 - `--fp64`: run the FP64 benchmark cases
-- `--fp32`: run the FP32 benchmark cases
+- `--tf32`: run the TF32 benchmark cases
+- `--fp32`: alias for `--tf32`
 - `--verify`: run correctness verification after timing
 - `-h`, `--help`: print usage
 
 Each benchmark run ends with a machine-readable summary line:
 
 ```text
-TCCG_RESULT equation=12 precision=fp32 operations=... time_ms=... gflops=... validation=PASS
+TCCG_RESULT equation=12 precision=tf32 operations=... time_ms=... gflops=... validation=PASS
 ```
 
 ## Timing Flow
@@ -172,7 +173,7 @@ python3 benchmarks/tccg/run_tccg_benchmarks.py
 Default outputs:
 
 - `benchmarks/tccg/results/tccg_fp64_results.csv`
-- `benchmarks/tccg/results/tccg_fp32_results.csv`
+- `benchmarks/tccg/results/tccg_tf32_results.csv`
 
 Useful options:
 
@@ -195,7 +196,7 @@ Each CSV contains:
 ## Current Limitations
 
 - TCCG benchmarking and verification paths support both `ScalarType::Float32` and `ScalarType::Float64`.
-- FP32 execution currently follows the Cogent TF32-style generation path and uses correspondingly looser validation tolerances.
+- Float32 benchmark execution currently follows the Cogent TF32-style generation path and uses correspondingly looser validation tolerances.
 - Full benchmark execution still requires a CUDA-capable GPU and a CUDA toolkit visible to CMake.
 
 ## Key Source Files

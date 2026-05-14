@@ -14,14 +14,14 @@
 namespace {
 thread_local VerificationTolerance g_verification_tolerance{1e-11, 1e-9};
 thread_local VerificationResult g_verification_result{false, 0, 0, 0, 0};
-VerificationResult check_correctness_comparison(int total_size, double* output_host, double* output_device);
-void check_correctness_tccg_00(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+VerificationResult check_correctness_comparison(int total_size, const double* output_host, const double* output_device);
+void check_correctness_tccg_00(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
-    int size_a = extent_of(eq, 'a');
-    int size_b = extent_of(eq, 'b');
-    int size_c = extent_of(eq, 'c');
-    int size_d = extent_of(eq, 'd');
+    int size_a = extent_of(eq, 'i');
+    int size_b = extent_of(eq, 'j');
+    int size_c = extent_of(eq, 'k');
+    int size_d = extent_of(eq, 'm');
 
     // a(384),b(384),c(24)-b(384),d(384),a(394)-d(384),c(24)
     #pragma omp parallel
@@ -45,8 +45,8 @@ void check_correctness_tccg_00(double* output, double* input_left, double* input
 
 // tccg #01
 // abc-bda-dc a:312;c:24;b:312;d:312;
-void check_correctness_tccg_01(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_01(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {    
     int size_a = extent_of(eq, 'a');
     int size_b = extent_of(eq, 'b');
@@ -75,8 +75,8 @@ void check_correctness_tccg_01(double* output, double* input_left, double* input
 
 // tccg #02
 // abc-dca-bd a:312;c:296;b:24;d:312;
-void check_correctness_tccg_02(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_02(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -104,8 +104,8 @@ void check_correctness_tccg_02(double* output, double* input_left, double* input
 
 // tccg #03
 // abcd-dbea-ec a:72;c:24;b:72;e:72;d:72;
-void check_correctness_tccg_03(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_03(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -135,8 +135,8 @@ void check_correctness_tccg_03(double* output, double* input_left, double* input
 
 // tccg #04
 // abcd-deca-be a:72;c:72;b:24;e:72;d:72;
-void check_correctness_tccg_04(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_04(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -166,8 +166,8 @@ void check_correctness_tccg_04(double* output, double* input_left, double* input
 
 // tccg #05
 // abcd-ebad-ce a:72;c:24;b:72;e:72;d:72;
-void check_correctness_tccg_05(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_05(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -197,8 +197,8 @@ void check_correctness_tccg_05(double* output, double* input_left, double* input
 
 // tccg #06
 // abcde-efbad-cf a:48;c:24;b:32;e:48;d:32;f:32;
-void check_correctness_tccg_06(double* output, double* input_left, double* input_right, 
-                            double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_06(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -230,8 +230,8 @@ void check_correctness_tccg_06(double* output, double* input_left, double* input
 
 // tccg #07
 // abcde-ecbfa-fd a:48;c:32;b:32;e:48;d:24;f:48;
-void check_correctness_tccg_07(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_07(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -263,8 +263,8 @@ void check_correctness_tccg_07(double* output, double* input_left, double* input
 
 // tccg #08
 // abcde-efcad-bf a:48;c:32;b:24;e:48;d:32;f:32;
-void check_correctness_tccg_08(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_08(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -296,8 +296,8 @@ void check_correctness_tccg_08(double* output, double* input_left, double* input
 
 // tccg #09
 // abcd-ea-ebcd a:72;c:72;b:72;e:72;d:72;
-void check_correctness_tccg_09(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_09(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -327,8 +327,8 @@ void check_correctness_tccg_09(double* output, double* input_left, double* input
 
 // tccg #10
 // abcd-eb-aecd a:72;c:72;b:72;e:72;d:72;
-void check_correctness_tccg_10(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_10(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -358,8 +358,8 @@ void check_correctness_tccg_10(double* output, double* input_left, double* input
 
 // tccg #11
 // abcd-ec-abed a:72;c:72;b:72;e:72;d:72;
-void check_correctness_tccg_11(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_11(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -389,8 +389,8 @@ void check_correctness_tccg_11(double* output, double* input_left, double* input
 
 // tccg #12
 // ab-ac-cb a:5136;c:5136;b:5120;
-void check_correctness_tccg_12(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_12(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -416,8 +416,8 @@ void check_correctness_tccg_12(double* output, double* input_left, double* input
 
 // tccg #13
 // ab-acd-dbc a:312;c:296;b:296;d:312;
-void check_correctness_tccg_13(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_13(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -445,8 +445,8 @@ void check_correctness_tccg_13(double* output, double* input_left, double* input
 
 // tccg #14
 // ab-cad-dcb a:312;c:312;b:296;d:312;
-void check_correctness_tccg_14(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_14(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -472,14 +472,13 @@ void check_correctness_tccg_14(double* output, double* input_left, double* input
 
     //
     int total_size  = size_a * size_b;
-    printf ("# of Operations: %lld\n", total_op * 2);
     check_correctness_comparison(total_size, output, dev_output);
 }
 
 // tccg #15
 // abc-acd-db a:312;c:296;b:296;d:312;
-void check_correctness_tccg_15(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_15(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -507,8 +506,8 @@ void check_correctness_tccg_15(double* output, double* input_left, double* input
 
 // tccg #16
 // abc-ad-bdc a:312;c:296;b:312;d:296;
-void check_correctness_tccg_16(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_16(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -536,8 +535,8 @@ void check_correctness_tccg_16(double* output, double* input_left, double* input
 
 // tccg #17
 // abc-adc-bd a:312;c:296;b:312;d:296;
-void check_correctness_tccg_17(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_17(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -565,8 +564,8 @@ void check_correctness_tccg_17(double* output, double* input_left, double* input
 
 // tccg #18
 // abc-adc-db a:312;c:296;b:296;d:312; **
-void check_correctness_tccg_18(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_18(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -594,8 +593,8 @@ void check_correctness_tccg_18(double* output, double* input_left, double* input
 
 // tccg #19
 // abc-adec-ebd a:72;c:72;b:72;e:72;d:72; **
-void check_correctness_tccg_19(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_19(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -625,8 +624,8 @@ void check_correctness_tccg_19(double* output, double* input_left, double* input
 
 // tccg #20
 // abcd-aebf-dfce a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_20(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_20(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -658,8 +657,8 @@ void check_correctness_tccg_20(double* output, double* input_left, double* input
 
 // tccg #21
 // abcd-aebf-fdec a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_21(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_21(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -691,8 +690,8 @@ void check_correctness_tccg_21(double* output, double* input_left, double* input
 
 // tccg #22
 // abcd-aecf-bfde a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_22(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_22(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -724,8 +723,8 @@ void check_correctness_tccg_22(double* output, double* input_left, double* input
 
 // tccg #23
 // abcd-aecf-fbed a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_23(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_23(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -757,8 +756,8 @@ void check_correctness_tccg_23(double* output, double* input_left, double* input
 
 // tccg #24
 // abcd-aedf-bfce a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_24(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_24(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -790,8 +789,8 @@ void check_correctness_tccg_24(double* output, double* input_left, double* input
 
 // tccg #25
 // abcd-aedf-fbec a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_25(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_25(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -823,8 +822,8 @@ void check_correctness_tccg_25(double* output, double* input_left, double* input
 
 // tccg #26
 // abcd-aefb-fdce a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_26(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_26(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -856,8 +855,8 @@ void check_correctness_tccg_26(double* output, double* input_left, double* input
 
 // tccg #27
 // abcd-aefc-fbed a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_27(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_27(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -889,8 +888,8 @@ void check_correctness_tccg_27(double* output, double* input_left, double* input
 
 // tccg #28
 // abcd-eafb-fdec a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_28(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_28(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -922,8 +921,8 @@ void check_correctness_tccg_28(double* output, double* input_left, double* input
 
 // tccg #29
 // abcd-eafc-bfde a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_29(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_29(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -955,8 +954,8 @@ void check_correctness_tccg_29(double* output, double* input_left, double* input
 
 // tccg #30
 // abcd-eafd-fbec a:72;c:72;b:72;e:72;d:72;f:72;
-void check_correctness_tccg_30(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_30(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -988,8 +987,8 @@ void check_correctness_tccg_30(double* output, double* input_left, double* input
 
 // tccg #31
 // abcdef-dega-gfbc a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_31(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_31(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1023,8 +1022,8 @@ void check_correctness_tccg_31(double* output, double* input_left, double* input
 
 // tccg #32
 // abcdef-degb-gfac a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_32(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_32(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1058,8 +1057,8 @@ void check_correctness_tccg_32(double* output, double* input_left, double* input
 
 // tccg #33
 // abcdef-degc-gfab a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_33(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_33(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1093,8 +1092,8 @@ void check_correctness_tccg_33(double* output, double* input_left, double* input
 
 // tccg #34
 // abcdef-dfga-gebc a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_34(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_34(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1128,8 +1127,8 @@ void check_correctness_tccg_34(double* output, double* input_left, double* input
 
 // tccg #35
 // abcdef-dfgb-geac a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_35(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_35(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1163,8 +1162,8 @@ void check_correctness_tccg_35(double* output, double* input_left, double* input
 
 // tccg #36
 // abcdef-dfgc-geab a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_36(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_36(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1198,8 +1197,8 @@ void check_correctness_tccg_36(double* output, double* input_left, double* input
 
 // tccg #37
 // abcdef-efga-gdbc a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_37(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_37(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1233,8 +1232,8 @@ void check_correctness_tccg_37(double* output, double* input_left, double* input
 
 // tccg #38
 // abcdef-efgb-gdac a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_38(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_38(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1268,8 +1267,8 @@ void check_correctness_tccg_38(double* output, double* input_left, double* input
 
 // tccg #39
 // abcdef-efgc-gdab a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_39(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_39(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1303,8 +1302,8 @@ void check_correctness_tccg_39(double* output, double* input_left, double* input
 
 // tccg #40
 // abcdef-gdab-efgc a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_40(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_40(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1338,8 +1337,8 @@ void check_correctness_tccg_40(double* output, double* input_left, double* input
 
 // tccg #41
 // abcdef-gdac-efgb a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_41(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_41(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1373,8 +1372,8 @@ void check_correctness_tccg_41(double* output, double* input_left, double* input
 
 // tccg #42
 // abcdef-gdbc-efga a:24;c:16;b:16;e:24;d:16;g:24;f:16;
-void check_correctness_tccg_42(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_42(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1408,8 +1407,8 @@ void check_correctness_tccg_42(double* output, double* input_left, double* input
 
 // tccg #43
 // abcdef-geab-dfgc a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_43(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_43(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1443,8 +1442,8 @@ void check_correctness_tccg_43(double* output, double* input_left, double* input
 
 // tccg #44
 // abcdef-geac-dfgb a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_44(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_44(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1478,8 +1477,8 @@ void check_correctness_tccg_44(double* output, double* input_left, double* input
 
 // tccg #45
 // abcdef-gebc-dfga a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_45(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_45(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1513,8 +1512,8 @@ void check_correctness_tccg_45(double* output, double* input_left, double* input
 
 // tccg #46
 // abcdef-gfab-degc a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_46(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_46(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1548,8 +1547,8 @@ void check_correctness_tccg_46(double* output, double* input_left, double* input
 
 // tccg #47
 // abcdef-gfac-degb a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_47(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_47(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1583,8 +1582,8 @@ void check_correctness_tccg_47(double* output, double* input_left, double* input
 
 // tccg #48
 // abcdef-gfbc-dega a:24;c:16;b:16;e:16;d:24;g:24;f:16;
-void check_correctness_tccg_48(double* output, double* input_left, double* input_right, 
-    double* dev_output, const TconT::TCEquation& eq)
+void check_correctness_tccg_48(double* output, const double* input_left, const double* input_right, 
+                            const double* dev_output, const TconT::TCEquation& eq)
 {
     int size_a  = extent_of(eq, 'a');
     int size_b  = extent_of(eq, 'b');
@@ -1618,7 +1617,7 @@ void check_correctness_tccg_48(double* output, double* input_left, double* input
 
 
 //
-VerificationResult check_correctness_comparison(int total_size, double* output_host, double* output_device)
+VerificationResult check_correctness_comparison(int total_size, const double* output_host, const double* output_device)
 {
     if (total_size < 0) {
         fprintf(stderr, "Invalid total size: %d\n", total_size);
@@ -1672,7 +1671,7 @@ VerificationResult check_correctness_comparison(int total_size, double* output_h
             diff++;
             if (diff <= max_print) 
             {
-                printf ("[%d/%d] h=%0.4e, d=%0.4e, |err|=%.03e, tol=%0.3e\n", 
+                printf ("[%d/%d] h=%0.6f, d=%0.6f, |err|=%.06f, tol=%0.6f\n", 
                     i, total_size, h, d, err, tol);
             }
         } else {
@@ -1706,9 +1705,9 @@ VerificationResult verify_tccg_case_reference(
     size_t case_index,
     const TconT::TCEquation& eq,
     double* output_reference,
-    double* output_device,
-    double* input_left,
-    double* input_right)
+    const double* output_device,
+    const double* input_left,
+    const double* input_right)
 {
     g_verification_result = VerificationResult{false, 0, 0, 0, 0};
     switch (case_index) {
@@ -1819,10 +1818,13 @@ VerificationResult verify_tccg_case(
     switch (eq.scalar_type) {
         case TconT::ScalarType::Float64: {
             std::vector<double> reference_output(output_size, 0.0);
-            auto output = convert_to_double(static_cast<const double*>(output_device), output_size);
-            auto left = convert_to_double(static_cast<const double*>(input_left), left_size);
-            auto right = convert_to_double(static_cast<const double*>(input_right), right_size);
-            return verify_tccg_case_reference(case_index, eq, reference_output.data(), output.data(), left.data(), right.data());
+            return verify_tccg_case_reference(
+                case_index,
+                eq,
+                reference_output.data(),
+                static_cast<const double*>(output_device),
+                static_cast<const double*>(input_left),
+                static_cast<const double*>(input_right));
         }
         case TconT::ScalarType::Float32: {
             return verify_tccg_case_float(

@@ -56,9 +56,8 @@ def collect_split_cand_simple(tile_cand, frag_cand, out_fvi, data_type):
                     if cand == 16 :
                         continue
             else :
-                if out_fvi == l_index[0] :
-                    if cand == 32 :
-                        continue
+                if cand == 32 :
+                    continue
             
             if tile_size // cand < 1 :
                 continue
@@ -70,29 +69,19 @@ def collect_split_cand_simple(tile_cand, frag_cand, out_fvi, data_type):
 def collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, size_map, out_fvi, data_type):
     result = []
     swap_flag = 0
-    # print(f"tile_cand: {tile_cand}", file=sys.stderr)
+
     for l_index, tile_size in tile_cand :
         if small_tile[0] in l_index :
             fvi_flag = 1
         else :
             fvi_flag = 0
 
-        # print(f"l_index: {l_index}, tile_size: {tile_size}, fvi_flag: {fvi_flag}", file=sys.stderr)
-        # print(f"mapping_key: {mapping_key}", file=sys.stderr)
-        # print(f"frag_cand : {frag_cand}", file=sys.stderr)
         for i in l_index :
             if i in mapping_key :
-                # print("hello1", file=sys.stderr)
                 continue
             for cand in frag_cand :
                 reg_size   = tile_size // cand
                 mapped_idx = mapping_key[0]
-                partial    = tb_partial_ratio(size_map[mapped_idx], cand)
-                tail       = tail_partial_ratio(size_map[mapped_idx], cand)
-                # print(f"mapped_idx: {mapped_idx}, cand: {cand}, reg_size: {reg_size}, partial: {partial}, tail: {tail}", file=sys.stderr)
-                # if partial > 0.33 and tail > 0.5 :
-                #     print("hello2", file=sys.stderr)
-                #     continue
 
                 if fvi_flag :
                     if data_type == "DOUBLE" :
@@ -112,11 +101,10 @@ def collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key,
                         else :
                             continue
                     elif mapped_idx == small_tile[0] and cand not in small_fvi_cand :
-                        # print("hello4", file=sys.stderr)
                         continue
 
                 result.append([[mapped_idx, cand], [i, reg_size]])
-    # print(f"split : {result}", file=sys.stderr)
+
     return result, swap_flag
 
 
@@ -159,7 +147,10 @@ def tb_partial_ratio(x, base) :
     return tb_partial_ratio
 
 
-def get_big_fvi_cand(big_tile, k_indices, k_cand, size_map, index_mapping, out_fvi, data_type):
+def get_big_fvi_cand(big_tile, k_indices, k_cand, size_map, index_mapping, out_fvi, data_type, reference_mapping=None):
+    if reference_mapping is None:
+        reference_mapping = index_mapping
+
     if data_type == "DOUBLE" :
         if (index_mapping[2][0] == big_tile[0]) or (index_mapping[4][0] == big_tile[0]):
             if size_map[big_tile[0]] % 2 == 0:
@@ -178,22 +169,10 @@ def get_big_fvi_cand(big_tile, k_indices, k_cand, size_map, index_mapping, out_f
         else:
             return [8]
     else :
-        if (index_mapping[2][0] == big_tile[0]) or (index_mapping[4][0] == big_tile[0]):
-            if (size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0):
-                return [16, 32]
-            else :
-                return [16]
-        elif out_fvi == big_tile[0] :
-            if (size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0):
-                return [16, 32]
-            else :
-                return [16]
-        elif big_tile[0] in k_indices:
-            return k_cand
-        elif (size_map[big_tile[0]] % 32 == 0) or ((tb_partial_ratio(size_map[big_tile[0]], 32) < 0.2) and (tail_partial_ratio(size_map[big_tile[0]], 32) <= 0.5) and ((size_map[big_tile[0]] % 2 == 0) or (size_map[big_tile[0]] % 4 == 0))) :
-            return [32]
-        else:
+        frag_slot, _ = _get_big_mapping_slots(big_tile, out_fvi)
+        if reference_mapping[frag_slot][0] == big_tile[0]:
             return [16]
+        return [8, 16]
     
 
 def get_frag_reg(big_tile, index_mapping, out_fvi):
@@ -203,7 +182,75 @@ def get_frag_reg(big_tile, index_mapping, out_fvi):
         return index_mapping[2][0], index_mapping[4][0]
     
 
-def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, data_type):
+def _get_big_mapping_slots(big_tile, out_fvi):
+    if out_fvi in big_tile:
+        return 1, 3
+    return 2, 4
+
+
+def _should_swap_big_mapping(big_tile, big_mapped_with_size, index_mapping, out_fvi, data_type):
+    swap_votes = 0
+    keep_votes = 0
+    big_fvi = big_tile[0]
+
+    if data_type != "FLOAT":
+        return False
+
+    if big_fvi == out_fvi:
+        return False
+
+    frag_slot, reg_slot = _get_big_mapping_slots(big_tile, out_fvi)
+    if len(index_mapping[frag_slot]) > 1 or len(index_mapping[reg_slot]) > 1:
+        return False
+    if big_fvi != index_mapping[frag_slot][0] and big_fvi != index_mapping[reg_slot][0]:
+        return False
+
+    for pair in big_mapped_with_size:
+        if len(pair) != 2:
+            continue
+
+        if pair[0][0] == big_fvi:
+            big_size = pair[0][1]
+            other_size = pair[1][1]
+        elif pair[1][0] == big_fvi:
+            big_size = pair[1][1]
+            other_size = pair[0][1]
+        else:
+            continue
+
+        if big_size < other_size:
+            swap_votes += 1
+        else:
+            keep_votes += 1
+
+    return swap_votes > 0 and swap_votes >= keep_votes
+
+
+def _swap_big_mapping_roles(big_tile, index_mapping, out_fvi):
+    frag_slot, reg_slot = _get_big_mapping_slots(big_tile, out_fvi)
+    index_mapping[frag_slot], index_mapping[reg_slot] = index_mapping[reg_slot], index_mapping[frag_slot]
+
+
+def _filter_swapped_big_mapping_candidates(big_mapped_with_size, frag):
+    filtered = []
+
+    for pair in big_mapped_with_size:
+        frag_pair = None
+        for item in pair:
+            if item[0] == frag:
+                frag_pair = item
+                break
+
+        if frag_pair is None:
+            continue
+
+        if frag_pair[1] >= 16:
+            filtered.append(pair)
+
+    return filtered
+
+
+def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, out_fvi, data_type):
     result = []
     is_simple = (len(big_indices) - len(k_indices) == 1)
 
@@ -229,16 +276,8 @@ def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_c
             else:
                 for tile in tile_big:
                     for cand in big_fvi_cand:
-                        # frag_size = tile // cand
-                        # if 8 <= frag_size <= 16:
-                        #     result.append([[frag, frag_size], [reg, cand]])
-                        # else :
-                        #     while 16 >= (tile // cand) >= 8 :
-                        #         tmp_cand = cand // 2
-                        #         frag_size = tile // tmp_cand
-                        #         if 8 <= frag_size <= 16:
-                        #             result.append([[frag, frag_size], [reg, cand]])
                         tmp_cand = cand
+
                         while tmp_cand >= 1:
                             frag_size = tile // tmp_cand
                             if frag_size == 8 or frag_size == 16:
@@ -248,12 +287,15 @@ def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_c
                                 tmp_cand = tmp_cand // 2  # cand를 줄여서 frag_size를 키움
                             else:  # frag_size > 16
                                 tmp_cand = tmp_cand * 2  # cand를 늘려서 frag_size를 줄임
-                                if tmp_cand > tile:  # 무한루프 방지
+                                if tmp_cand > tile:
                                     break
     else :
         if is_simple:
             for tile in tile_big:
                 for cand in frag_cand:
+                    if frag == out_fvi :
+                        if cand == 32 :
+                            continue
                     result.append([[frag, cand], [reg, tile // cand]])
         else :
             if big_tile[0] in k_indices:
@@ -261,12 +303,18 @@ def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_c
                     for cand in frag_cand:
                         reg_size = tile // cand
                         if reg_size <= 32:
+                            if frag == out_fvi :
+                                if cand == 32 :
+                                    continue
                             result.append([[frag, cand], [reg, reg_size]])
 
             elif big_tile[0] == frag:
                 for tile in tile_big:
                     for cand in big_fvi_cand:
                         reg_size = tile // cand
+                        if frag == out_fvi :
+                            if cand == 32 :
+                                continue
                         result.append([[frag, cand], [reg, reg_size]])
 
             else:
@@ -276,10 +324,14 @@ def get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_c
                         while tmp_cand >= 1:
                             frag_size = tile // tmp_cand
                             if frag_size == 16 or frag_size == 32:
+                                if frag == out_fvi and frag_size == 32 :
+                                    break
                                 result.append([[frag, frag_size], [reg, tmp_cand]])
                                 break
                             elif frag_size < 16:
                                 tmp_cand = tmp_cand // 2  # cand를 줄여서 frag_size를 키움
+                                if tmp_cand < 16 :
+                                    break
                             else:  # frag_size > 16
                                 tmp_cand = tmp_cand * 2  # cand를 늘려서 frag_size를 줄임
                                 if tmp_cand > tile:  # 무한루프 방지
@@ -320,7 +372,7 @@ def get_alpha_key(index_name):
     return re.sub(r'\d+', '', index_name)
 
 
-def find_divisors(comb, data_type):
+def find_divisors(comb, data_type, a_flag, small_ext_cnt):
     front_val = comb[0][1] * comb[1][1] # n
     back_val  = comb[2][1] * comb[3][1] # m
 
@@ -368,15 +420,15 @@ def find_divisors(comb, data_type):
             if (front_result * back_result // 256) * 8 > 128:
             # print(f"Skipping divisor pair ({d_front}, {d_back}) because it results in too large of a tile (front_result: {front_result}, back_result: {back_result})", file=sys.stderr)
                 continue
-        # if second_is_closer and front_result < back_result:
-        #     continue
-        # if not second_is_closer and back_result < front_result:
-        #     continue
-        # if second_is_closer and d_front < d_back:
-        #     print(f"{d_front, d_back}")
-        #     continue
-        # if not second_is_closer and d_back < d_front:
-        #     continue
+
+        if data_type == "FLOAT" :
+            if a_flag == 0 :
+                if front_result < back_result :
+                    continue
+        else :
+            if a_flag == 0 and small_ext_cnt == 1 :
+                if front_result < back_result :
+                    continue
 
         results.append((d_front, d_back))
 
@@ -401,12 +453,13 @@ def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type):
                 return 16
             if fx < 64 :
                 return 32
-            if fx < 128 :
-                return 32
-            if fx < 256 :
+            if fx < 512 :
                 return 64
             else :
-                return 128
+                if small_ext_cnt == 1 :
+                    return 64
+                else :
+                    return 128
 
     def get_max_val(fx, data_type):
         if data_type == "DOUBLE" :
@@ -418,8 +471,8 @@ def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type):
         else :
             if fx < 32:  return 32
             if fx < 64:  return 64
-            if fx < 128:  return 64
-            if fx < 256: return 128
+            if fx < 512:  return 64
+            # if fx < 256: return 128
             else:        return 128
 
     if x <= 8 : 
@@ -430,10 +483,10 @@ def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type):
         MAX_TILE = 64
     else :
         MAX_TILE = 128
-
+    
     lo = get_min_val(fx, data_type)
     hi = min(MAX_TILE, get_max_val(fx, data_type))
-    # print(f"Selecting tile for x={x}, fx={fx}, initial range=({lo}, {hi})", file=sys.stderr)
+
     if internal_len > 1 and small_ext_cnt == 1 and big_ext_cnt == 1 :
         if lo / 2 >= 8 :
             lo /= 2
@@ -454,7 +507,6 @@ def select_tile(x, internal_len, small_ext_cnt, big_ext_cnt, data_type):
         while selected > 0 and math.ceil(x / selected) < 15:
             selected = selected // 2
 
-        # 루프 후 selected가 0이 됐을 때 처리
         if data_type == "DOUBLE" :
             if selected <= 8:
                 selected = 8
@@ -495,10 +547,10 @@ def tile_k_range(k, k_cand, data_type) :
 
     result = {}
     for kt in k_values :
-        max_stage = min(math.ceil(k / kt), 5) - 1
+        max_stage = min(math.ceil(k / kt), 4)
         if max_stage < 1 :
             max_stage = 1
-
+        
         if data_type == "DOUBLE" :
             if kt == 4:
                 if max_stage >= 3 :
@@ -521,7 +573,7 @@ def tile_k_range(k, k_cand, data_type) :
                 max_stage = min(2, max_stage)
                 min_stage = 1
             else :
-                max_stage = min(3, max_stage)
+                max_stage = min(2, max_stage)
                 min_stage = 1
 
         if min_stage <= max_stage :
@@ -594,7 +646,7 @@ def tile_range_small_v2(x, internal_len, small_ext_cnt, big_ext_cnt, t3_indices,
     return tile_cand
 
 
-def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, internal_len, size_map, index_mapping, out_fvi, data_type) :
+def tile_range_big(x, small, k, big_internal_flag, small_internal_flag, big_tile, a_flag, internal_len, size_map, index_mapping, small_ext_cnt, out_fvi, data_type) :
     if a_flag :
         frag_mapped = index_mapping[1][0]
         reg_mapped = index_mapping[3][0]
@@ -637,8 +689,12 @@ def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, 
                 min_val = 32
                 max_val = 64
             elif pow2_size < 8192 :
-                min_val = 64
-                max_val = 128
+                if internal_len > 1 :
+                    min_val = 128
+                    max_val = 128
+                else :
+                    min_val = 64
+                    max_val = 128
             else :
                 if out_fvi == big_tile[0] :
                     min_val = 64
@@ -669,42 +725,59 @@ def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, 
     else :
         if split_flag :
             if pow2_size >= 4096 :
-                if tail_partial_ratio(index_size, 256) <= 0.5 :
-                    tile_size = 256
-                else :
-                    tile_size = 128
+                tile_size = 128
             elif pow2_size >= 2048 :
                 tile_size = 128
             elif pow2_size >= 512 :
                 tile_size = 64
+            elif pow2_size >= 256 :
+                tile_size = 64
             else :
                 tile_size = 32
-
-            if internal_len > 1 and big_internal_flag and small_internal_flag and big_tile[0] == index_mapping[0][0] :
-                tile_size *= 2
 
             l_tile = [tile_size]
         else :
             if pow2_size <= 64 :
-                min_val = 32
-                max_val = 64
-            elif pow2_size < 4096 :
                 min_val = 64
                 max_val = 128
-            elif pow2_size < 16384 :
+            elif pow2_size <= 1024 :
                 min_val = 128
+                max_val = 128
+            elif pow2_size < 8192 :
+                if out_fvi == big_tile[0] :
+                    min_val = 128
+                    max_val = 128
+                else :
+                    if ((max(small, k) / min(small, k)) < 1.2) :
+                        min_val = 128
+                        max_val = 128
+                    else :
+                        min_val = 256
+                        max_val = 256
+            elif pow2_size < 16384 :
+                min_val = 256
                 max_val = 256
             else :
                 if out_fvi == big_tile[0] :
                     min_val = 128
-                    max_val = 256
-                else :
-                    if (size_map[big_tile[0]] % 2 != 0) and (size_map[big_tile[0]] % 4 != 0) :
-                        min_val = 128
+                    if ((max(small, k) / min(small, k)) < 1.2) :
+                        max_val = 128
+                    else :
                         max_val = 256
-                    else : 
-                        min_val = 256
-                        max_val = 512
+                else :
+                    if (size_map[big_tile[0]] % 2 != 0) and (size_map[big_tile[0]] % 4 != 0):
+                        min_val = 128
+                        if ((max(small, k) / min(small, k)) < 1.2) :
+                            max_val = 128
+                        else :
+                            max_val = 256
+                    else :
+                        if (small_ext_cnt == 1) and ((max(small, k) / min(small, k)) < 1.2):
+                            min_val = 128
+                            max_val = 128
+                        else :
+                            min_val = 256
+                            max_val = 256
 
             lo = min_val
             hi = max_val
@@ -721,10 +794,11 @@ def tile_range_big(x, big_internal_flag, small_internal_flag, big_tile, a_flag, 
                 tmp = [tile // 2 for tile in original if tile > min_val]
 
                 l_tile = sorted(set(original + tmp))
+
     return l_tile
 
 
-def make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type) :
+def make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type, out_fvi) :
     config_struct = []
     for tk_l, comb_l in iproduct(tile_k, external_comb) :
         tk = tk_l[0]
@@ -732,6 +806,7 @@ def make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type) :
         tile_comb = comb_l[0]
         shape = comb_l[1]
         internal = index_mapping[0]
+        adjusted_tile_comb = tile_comb
         
         if data_type == "DOUBLE" :
             if tk == 16 :
@@ -750,30 +825,37 @@ def make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type) :
                     continue
         else :
             if tk == 32 :
+                big_reg_mapped = index_mapping[3][0] if a_flag else index_mapping[4][0]
+                adjusted_tile_comb = []
+                for idx, tile_size in tile_comb:
+                    if idx == big_reg_mapped:
+                        adjusted_tile_comb.append([idx, max(1, tile_size // 2)])
+                    else:
+                        adjusted_tile_comb.append([idx, tile_size])
+
                 tile = 1
                 if a_flag :
                     n_mapped = [index_mapping[1][0], index_mapping[3][0]]
-                    for tmp in tile_comb :
+                    for tmp in adjusted_tile_comb :
                         if tmp[0] in n_mapped :
                             tile *= tmp[1]
                 else :
                     m_mapped = [index_mapping[2][0], index_mapping[4][0]]
-                    for tmp in tile_comb :
+                    for tmp in adjusted_tile_comb :
                         if tmp[0] in m_mapped :
                             tile *= tmp[1]
                 if tile == 1024 :
                     continue
-        
 
         full_tile_comb = []
         if len(internal) > 1 :
             full_tile_comb.append([internal[0], tk])
             full_tile_comb.append([internal[1], 1])
-            for comb in tile_comb :
+            for comb in adjusted_tile_comb :
                 full_tile_comb.append(comb)
         else :
             full_tile_comb.append([internal[0], tk])
-            for comb in tile_comb :
+            for comb in adjusted_tile_comb :
                 full_tile_comb.append(comb)
 
         config_struct.append([shape, [stage], full_tile_comb])
@@ -801,6 +883,8 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
     k = 1
     for idx in k_indices :
         k *= index_to_extent[idx]
+
+    initial_index_mapping = [list(v) for v in index_mapping]
 
     result = compute_split_flags(t2_indices, v2_indices, k_indices, m, n, index_mapping, out_fvi)
     m_val, n_val, big, small, a_flag, double_k_flag = result
@@ -903,7 +987,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
                     k_cand = [16]
             elif big_tile[0] in k_indices :
                 if big / small >= 4 : 
-                    if (tb_partial_ratio(index_to_extent[big_tile[0]], 32) <= 0.15) and ((index_to_extent[big_tile[0]] % 2 == 0) or (index_to_extent[big_tile[0]] % 4 == 0)):
+                    if (tb_partial_ratio(index_to_extent[big_tile[0]], 32) <= 0.35) and ((index_to_extent[big_tile[0]] % 2 == 0) or (index_to_extent[big_tile[0]] % 4 == 0)):
                         k_cand = [32]
                     else :
                         k_cand = [16]
@@ -916,28 +1000,14 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
                     k_cand = [16]
             else :
                 if (tb_partial_ratio(index_to_extent[index_mapping[0][0]], 32) <= 0.15) and ((index_to_extent[index_mapping[0][0]] % 2 == 0) or (index_to_extent[index_mapping[0][0]] % 4 == 0)):
-                    k_cand = [8, 16, 32]
+                    k_cand = [16, 32]
                 else :
                     k_cand = [8, 16]
 
+    import sys
     tile_k = tile_k_range(k, k_cand, data_type)
-
+    
     tile_cand = tile_range_small_v2(small, len(k_indices), small_ext_cnt, big_ext_cnt, t3_indices, small_tile, k_indices, index_to_extent, index_mapping, out_fvi, data_type)
-    # print(f"tile_cand: {tile_cand}", file=sys.stderr)
-    # print(f"a_flag : {a_flag}", file=sys.stderr)
-    tile_big = tile_range_big(
-        big,
-        big_internal_flag,
-        small_internal_flag,
-        big_tile,
-        a_flag,
-        len(k_indices),
-        index_to_extent,
-        index_mapping,
-        out_fvi,
-        data_type)
-    # print(f"tile_big: {tile_big}", file=sys.stderr)
-    #
 
     if data_type == "DOUBLE" :
         if out_fvi == small_tile[0] :
@@ -967,13 +1037,15 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
                         small_fvi_cand = [16, 32]
                     else :
                         small_fvi_cand = [8, 16]
-    # print(f"small_fvi_cand: {small_fvi_cand}", file=sys.stderr)
-    #
 
+    #
     if data_type == "DOUBLE" :
         frag_cand = [8, 16]
     else :
-        frag_cand = [16, 32]
+        if small_ext_cnt == 1 and big_ext_cnt == 1 :
+            frag_cand = [16]
+        else :
+            frag_cand = [16, 32]
 
     # mapping_key = Frag_mapped_index
     if out_fvi in small_tile:
@@ -988,17 +1060,79 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
         swap_flag = 0
     else:
         split_cand, swap_flag = collect_split_cand_mapped(tile_cand, frag_cand, small_fvi_cand, mapping_key, small_tile, index_to_extent, out_fvi, data_type)
-    # print(f"split_cand: {split_cand}", file=sys.stderr)
-
-    #
-    big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping, out_fvi, data_type)
-    # print(f"big_fvi_cand: {big_fvi_cand}", file=sys.stderr)
 
     frag, reg = get_frag_reg(big_tile, index_mapping, out_fvi)
-    # print(f"frag, reg: {frag}, {reg}", file=sys.stderr)
 
-    big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, data_type)
-    # print(f"big_mapped_with_size: {big_mapped_with_size}", file=sys.stderr)
+    #
+    big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping, out_fvi, data_type, initial_index_mapping)
+
+    tile_big = tile_range_big(
+        big,
+        small,
+        k,
+        big_internal_flag,
+        small_internal_flag,
+        big_tile,
+        a_flag,
+        len(k_indices),
+        index_to_extent,
+        index_mapping,
+        small_ext_cnt,
+        out_fvi,
+        data_type)
+
+    big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, out_fvi, data_type)
+
+    if _should_swap_big_mapping(big_tile, big_mapped_with_size, index_mapping, out_fvi, data_type):
+        _swap_big_mapping_roles(big_tile, index_mapping, out_fvi)
+
+        big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping, out_fvi, data_type)
+
+        tile_big = tile_range_big(
+            big,
+            small,
+            k,
+            big_internal_flag,
+            small_internal_flag,
+            big_tile,
+            a_flag,
+            len(k_indices),
+            index_to_extent,
+            index_mapping,
+            small_ext_cnt,
+            out_fvi,
+            data_type)
+
+        frag, reg = get_frag_reg(big_tile, index_mapping, out_fvi)
+
+        big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, out_fvi, data_type)
+
+        filtered_big_mapped_with_size = _filter_swapped_big_mapping_candidates(big_mapped_with_size, frag)
+        if filtered_big_mapped_with_size:
+            big_mapped_with_size = filtered_big_mapped_with_size
+        else:
+            _swap_big_mapping_roles(big_tile, index_mapping, out_fvi)
+
+            big_fvi_cand = get_big_fvi_cand(big_tile, k_indices, k_cand, index_to_extent, index_mapping, out_fvi, data_type)
+
+            tile_big = tile_range_big(
+                big,
+                small,
+                k,
+                big_internal_flag,
+                small_internal_flag,
+                big_tile,
+                a_flag,
+                len(k_indices),
+                index_to_extent,
+                index_mapping,
+                small_ext_cnt,
+                out_fvi,
+                data_type)
+
+            frag, reg = get_frag_reg(big_tile, index_mapping, out_fvi)
+
+            big_mapped_with_size = get_big_mapped_with_size(big_tile, tile_big, frag, reg, frag_cand, big_fvi_cand, k_indices, big_indices, out_fvi, data_type)
 
     from itertools import product
     if data_type == "DOUBLE" :
@@ -1023,11 +1157,10 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
                 big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size) if not ((big[0][1] == 32) and (small[0][1] == 32))]
             else :
                 big_small_comb = [small + big for small, big in product(split_cand, big_mapped_with_size)]
-    # print(f"big_small_comb: {big_small_comb}", file=sys.stderr)
 
     valid_combinations = []
     for comb in big_small_comb:
-        divisors = find_divisors(comb, data_type)
+        divisors = find_divisors(comb, data_type, a_flag, small_ext_cnt)
         # print(f"Divisors for combination {comb}: {divisors}", file=sys.stderr)
         if not divisors:
             continue
@@ -1045,9 +1178,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
 
         for d_front, d_back in divisors:
             valid_combinations.append([comb, [d_front, d_back]])
-
-    # print(f"valid_combinations: {valid_combinations}", file=sys.stderr)
-    
+    print(f"valid_combination : {valid_combinations}", file=sys.stderr)
     external_comb = []
     for comb, shape in valid_combinations :
         if a_flag :
@@ -1055,10 +1186,9 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
         else :
             results = fill_remaining_indices(comb, small_tile, big_tile, k_indices)
         external_comb.append([results, shape, comb])
-    # print(f"external_comb: {external_comb}", file=sys.stderr)
+    print(f"external_comb: {external_comb}", file=sys.stderr)
     
-    config_struct = make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type)
-    # print(f"Final config structure: {config_struct}", file=sys.stderr)
+    config_struct = make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type, out_fvi)
 
     return config_struct, swap_flag, m_frag_rank, m_reg_rank
 
@@ -1114,328 +1244,328 @@ def _get_attr(cfg: Any, name: str, default: float = 0.0) -> float:
         return float(default)
 
 #
-def normalize(values, method="minmax"):
-    """
-    values: 숫자 리스트
-    method:
-      - "minmax"      : (x - min) / (max - min)
-      - "zscore"      : (x - mean) / std
-      - "robust"      : (x - median) / IQR (Q3 - Q1)
-      - "rank"        : 값의 순위를 [0, 1]로 매핑 (동일 값은 같은 값)
-      - "log_minmax"  : log 스케일 후 min-max
-    """
-    if not values:
-        return []
+# def normalize(values, method="minmax"):
+#     """
+#     values: 숫자 리스트
+#     method:
+#       - "minmax"      : (x - min) / (max - min)
+#       - "zscore"      : (x - mean) / std
+#       - "robust"      : (x - median) / IQR (Q3 - Q1)
+#       - "rank"        : 값의 순위를 [0, 1]로 매핑 (동일 값은 같은 값)
+#       - "log_minmax"  : log 스케일 후 min-max
+#     """
+#     if not values:
+#         return []
 
-    if method == "minmax":
-        v_min = min(values)
-        v_max = max(values)
-        rng = v_max - v_min
-        if rng == 0:
-            return [0.0] * len(values)
-        return [(v - v_min) / rng for v in values]
+#     if method == "minmax":
+#         v_min = min(values)
+#         v_max = max(values)
+#         rng = v_max - v_min
+#         if rng == 0:
+#             return [0.0] * len(values)
+#         return [(v - v_min) / rng for v in values]
 
-    elif method == "zscore":
-        mean = sum(values) / len(values)
-        var = sum((v - mean) ** 2 for v in values) / len(values)
-        std = math.sqrt(var)
-        if std == 0:
-            return [0.0] * len(values)
-        return [(v - mean) / std for v in values]
+#     elif method == "zscore":
+#         mean = sum(values) / len(values)
+#         var = sum((v - mean) ** 2 for v in values) / len(values)
+#         std = math.sqrt(var)
+#         if std == 0:
+#             return [0.0] * len(values)
+#         return [(v - mean) / std for v in values]
 
-    elif method == "robust":
-        sorted_vals = sorted(values)
-        n = len(sorted_vals)
+#     elif method == "robust":
+#         sorted_vals = sorted(values)
+#         n = len(sorted_vals)
 
-        # median
-        if n % 2 == 1:
-            median = sorted_vals[n // 2]
-        else:
-            median = 0.5 * (sorted_vals[n // 2 - 1] + sorted_vals[n // 2])
+#         # median
+#         if n % 2 == 1:
+#             median = sorted_vals[n // 2]
+#         else:
+#             median = 0.5 * (sorted_vals[n // 2 - 1] + sorted_vals[n // 2])
 
-        def percentile(p):
-            k = p * (n - 1)
-            f = math.floor(k)
-            c = math.ceil(k)
-            if f == c:
-                return sorted_vals[int(k)]
-            return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
+#         def percentile(p):
+#             k = p * (n - 1)
+#             f = math.floor(k)
+#             c = math.ceil(k)
+#             if f == c:
+#                 return sorted_vals[int(k)]
+#             return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
 
-        q1 = percentile(0.25)
-        q3 = percentile(0.75)
-        iqr = q3 - q1
-        if iqr == 0:
-            return [0.0] * len(values)
-        return [(v - median) / iqr for v in values]
+#         q1 = percentile(0.25)
+#         q3 = percentile(0.75)
+#         iqr = q3 - q1
+#         if iqr == 0:
+#             return [0.0] * len(values)
+#         return [(v - median) / iqr for v in values]
 
-    elif method == "rank":
-        # 값 크기 순으로 정렬해서 0~1 사이로 매핑
-        # unique_sorted = sorted(set(values))
-        # if len(unique_sorted) == 1:
-        #     return [0.0] * len(values)
-        # rank_map = {
-        #     v: i / (len(unique_sorted) - 1)
-        #     for i, v in enumerate(unique_sorted)
-        # }
-        # return [rank_map[v] for v in values]
-        unique_sorted = np.unique(values)
-        if len(unique_sorted) == 1:
-            out = np.zeros_like(values)
-        else:
-            rank_map = {v: i / (len(unique_sorted) - 1)
-                        for i, v in enumerate(unique_sorted)}
-            out = np.array([rank_map[v] for v in values])
-        return out.tolist()
+#     elif method == "rank":
+#         # 값 크기 순으로 정렬해서 0~1 사이로 매핑
+#         # unique_sorted = sorted(set(values))
+#         # if len(unique_sorted) == 1:
+#         #     return [0.0] * len(values)
+#         # rank_map = {
+#         #     v: i / (len(unique_sorted) - 1)
+#         #     for i, v in enumerate(unique_sorted)
+#         # }
+#         # return [rank_map[v] for v in values]
+#         unique_sorted = np.unique(values)
+#         if len(unique_sorted) == 1:
+#             out = np.zeros_like(values)
+#         else:
+#             rank_map = {v: i / (len(unique_sorted) - 1)
+#                         for i, v in enumerate(unique_sorted)}
+#             out = np.array([rank_map[v] for v in values])
+#         return out.tolist()
     
-    elif method == "log_minmax":
-        v_min = min(values)
-        shift = 1 - v_min if v_min <= 0 else 0  # log 정의역 확보용 shift
-        log_vals = [math.log(v + shift) for v in values]
-        return normalize(log_vals, method="minmax")
+#     elif method == "log_minmax":
+#         v_min = min(values)
+#         shift = 1 - v_min if v_min <= 0 else 0  # log 정의역 확보용 shift
+#         log_vals = [math.log(v + shift) for v in values]
+#         return normalize(log_vals, method="minmax")
 
-    else:
-        raise ValueError(f"Unknown normalization method: {method}")
+#     else:
+#         raise ValueError(f"Unknown normalization method: {method}")
     
-#
-def normalize_to_attr(configs, src_attr, dst_attr, method="minmax"):
-    """
-    configs : cfg 객체 리스트 (예: l_config)
-    src_attr: 정규화할 원본 속성 이름 (예: "cost_total")
-    dst_attr: 정규화된 값을 쓸 속성 이름 (예: "cost_norm")
-    method  : normalize에서 쓸 정규화 방법
-    """
-    if not configs:
-        return
+# #
+# def normalize_to_attr(configs, src_attr, dst_attr, method="minmax"):
+#     """
+#     configs : cfg 객체 리스트 (예: l_config)
+#     src_attr: 정규화할 원본 속성 이름 (예: "cost_total")
+#     dst_attr: 정규화된 값을 쓸 속성 이름 (예: "cost_norm")
+#     method  : normalize에서 쓸 정규화 방법
+#     """
+#     if not configs:
+#         return
 
-    values = [getattr(cfg, src_attr) for cfg in configs]
+#     values = [getattr(cfg, src_attr) for cfg in configs]
 
-    norm_values = normalize(values, method=method)
+#     norm_values = normalize(values, method=method)
 
-    for cfg, v in zip(configs, norm_values):
-        setattr(cfg, dst_attr, v)
+#     for cfg, v in zip(configs, norm_values):
+#         setattr(cfg, dst_attr, v)
 
-#
-def fill_up_to_k_by_combined_cost(
-    configs: List[Any],
-    kept: List[Any],
-    *,
-    k: int = 10,
-    cost_attr: str = "combined_cost",
-) -> List[Any]:
-    if not configs:
-        return []
+# #
+# def fill_up_to_k_by_combined_cost(
+#     configs: List[Any],
+#     kept: List[Any],
+#     *,
+#     k: int = 10,
+#     cost_attr: str = "combined_cost",
+# ) -> List[Any]:
+#     if not configs:
+#         return []
 
-    if len(kept) >= k:
-        return kept[:k]
+#     if len(kept) >= k:
+#         return kept[:k]
 
-    kept_set = set(id(x) for x in kept)
+#     kept_set = set(id(x) for x in kept)
 
-    def _cost(cfg):
-        v = _get_attr(cfg, cost_attr, default=float("inf"))
-        if not np.isfinite(v):
-            return float("inf")
-        return float(v)
+#     def _cost(cfg):
+#         v = _get_attr(cfg, cost_attr, default=float("inf"))
+#         if not np.isfinite(v):
+#             return float("inf")
+#         return float(v)
 
-    # 전체를 비용순으로 훑으면서 kept에 없는 것만 추가
-    out = list(kept)
+#     # 전체를 비용순으로 훑으면서 kept에 없는 것만 추가
+#     out = list(kept)
 
-    for cfg in sorted(configs, key=_cost):
-        if id(cfg) in kept_set:
-            continue
-        out.append(cfg)
-        kept_set.add(id(cfg))
-        if len(out) >= k:
-            break
-    return out
+#     for cfg in sorted(configs, key=_cost):
+#         if id(cfg) in kept_set:
+#             continue
+#         out.append(cfg)
+#         kept_set.add(id(cfg))
+#         if len(out) >= k:
+#             break
+#     return out
 
-#
-def apply_combined_pruning_rules(
-    configs: List[Any],
-    combined_thresholds: Dict[str, List[Tuple[str, float, float]]],
-    *,
-    inclusive: bool = True,
-    attach_pass_flag: bool = True,
-) -> Tuple[List[Any], Dict[str, int]]:
-    #
-    stats: Dict[str, int] = {"input": len(configs), "kept": 0}
+# #
+# def apply_combined_pruning_rules(
+#     configs: List[Any],
+#     combined_thresholds: Dict[str, List[Tuple[str, float, float]]],
+#     *,
+#     inclusive: bool = True,
+#     attach_pass_flag: bool = True,
+# ) -> Tuple[List[Any], Dict[str, int]]:
+#     #
+#     stats: Dict[str, int] = {"input": len(configs), "kept": 0}
 
-    if not configs:
-        return [], stats
+#     if not configs:
+#         return [], stats
 
-    # ---------- 3) rule 적용 ----------
-    kept: List[Any] = []
+#     # ---------- 3) rule 적용 ----------
+#     kept: List[Any] = []
 
-    def _in_range(v: float, lo: float, hi: float) -> bool:
-        if inclusive:
-            return (v >= lo) and (v <= hi)
-        else:
-            return (v > lo) and (v < hi)
+#     def _in_range(v: float, lo: float, hi: float) -> bool:
+#         if inclusive:
+#             return (v >= lo) and (v <= hi)
+#         else:
+#             return (v > lo) and (v < hi)
 
-    #
-    for _, rules in combined_thresholds.items():
-        for metric, _, _ in rules:
-            stats.setdefault(f"fail:{metric}", 0)
+#     #
+#     for _, rules in combined_thresholds.items():
+#         for metric, _, _ in rules:
+#             stats.setdefault(f"fail:{metric}", 0)
 
-    #
-    for cfg in configs:
-        passed_all_groups = True
+#     #
+#     for cfg in configs:
+#         passed_all_groups = True
 
-        for group_name, rules in combined_thresholds.items():
-            ok_group = True
-            for metric, lo, hi in rules:
-                v = _get_attr(cfg, metric, 0.0)
-                if not _in_range(v, float(lo), float(hi)):
-                    ok_group = False
-                    stats[f"fail:{metric}"] += 1
-                    break
+#         for group_name, rules in combined_thresholds.items():
+#             ok_group = True
+#             for metric, lo, hi in rules:
+#                 v = _get_attr(cfg, metric, 0.0)
+#                 if not _in_range(v, float(lo), float(hi)):
+#                     ok_group = False
+#                     stats[f"fail:{metric}"] += 1
+#                     break
 
-            if not ok_group:
-                passed_all_groups = False
-                break
+#             if not ok_group:
+#                 passed_all_groups = False
+#                 break
 
-            #
-            stats[group_name] = stats.get(group_name, 0) + 1
+#             #
+#             stats[group_name] = stats.get(group_name, 0) + 1
 
-        if attach_pass_flag:
-            setattr(cfg, "prune_pass", bool(passed_all_groups))
+#         if attach_pass_flag:
+#             setattr(cfg, "prune_pass", bool(passed_all_groups))
 
-        if passed_all_groups:
-            kept.append(cfg)
+#         if passed_all_groups:
+#             kept.append(cfg)
 
-    stats["kept"] = len(kept)
+#     stats["kept"] = len(kept)
 
-    return kept, stats
+#     return kept, stats
 
-#
-def _get_attr_array(configs, name: str, *, default=np.nan) -> np.ndarray:
-    """
-    configs에서 attribute를 뽑아 float array로 만든다.
-    attribute가 없거나 float 변환이 안되면 default(np.nan)로 채운다.
-    """
-    out = np.empty(len(configs), dtype=np.float64)
-    for i, cfg in enumerate(configs):
-        v = getattr(cfg, name, default)
-        try:
-            out[i] = float(v)
-        except Exception:
-            out[i] = float(default)
-    return out
+# #
+# def _get_attr_array(configs, name: str, *, default=np.nan) -> np.ndarray:
+#     """
+#     configs에서 attribute를 뽑아 float array로 만든다.
+#     attribute가 없거나 float 변환이 안되면 default(np.nan)로 채운다.
+#     """
+#     out = np.empty(len(configs), dtype=np.float64)
+#     for i, cfg in enumerate(configs):
+#         v = getattr(cfg, name, default)
+#         try:
+#             out[i] = float(v)
+#         except Exception:
+#             out[i] = float(default)
+#     return out
 
-#
-def add_combined_metric(configs) :
-    #
-    n = len(configs)
-    if n == 0 :
-        print(f"Error : No configs")
+# #
+# def add_combined_metric(configs) :
+#     #
+#     n = len(configs)
+#     if n == 0 :
+#         print(f"Error : No configs")
 
-    #
-    ai_mem_inv      = _get_attr_array(configs, "ai_mem_norm_inverse")
-    partial_L       = _get_attr_array(configs, "partial_L_per_mma_norm")
-    tb_to_cap       = _get_attr_array(configs, "tb_to_cap_ratio_norm")
-    cost_d2         = _get_attr_array(configs, "partial_total_cost_d2_overlap_norm")
-    cost_d2_overlap = _get_attr_array(configs, "partial_total_cost_d2_norm")
-    mem_centered    = _get_attr_array(configs, "mem_metric_norm_centered")
-    cta_centered    = _get_attr_array(configs, "cta_per_sm_active_est_norm_centered")
+#     #
+#     ai_mem_inv      = _get_attr_array(configs, "ai_mem_norm_inverse")
+#     partial_L       = _get_attr_array(configs, "partial_L_per_mma_norm")
+#     tb_to_cap       = _get_attr_array(configs, "tb_to_cap_ratio_norm")
+#     cost_d2         = _get_attr_array(configs, "partial_total_cost_d2_overlap_norm")
+#     cost_d2_overlap = _get_attr_array(configs, "partial_total_cost_d2_norm")
+#     mem_centered    = _get_attr_array(configs, "mem_metric_norm_centered")
+#     cta_centered    = _get_attr_array(configs, "cta_per_sm_active_est_norm_centered")
     
-    #
-    combined_cost = (
-        ai_mem_inv        * 0.0011391029365924552
-        + partial_L       * 0.033929768398482565
-        + tb_to_cap       * 0.7039361449311637
-        + cost_d2         * 0.01453223140741916
-        + cost_d2_overlap * 0.04934274221154787
-        + mem_centered    * 0.08971833573055256
-        + cta_centered    * 0.10740167438424172
-    )
+#     #
+#     combined_cost = (
+#         ai_mem_inv        * 0.0011391029365924552
+#         + partial_L       * 0.033929768398482565
+#         + tb_to_cap       * 0.7039361449311637
+#         + cost_d2         * 0.01453223140741916
+#         + cost_d2_overlap * 0.04934274221154787
+#         + mem_centered    * 0.08971833573055256
+#         + cta_centered    * 0.10740167438424172
+#     )
 
-    #
-    for i, cfg in enumerate(configs):
-        setattr(cfg, "combined_cost", float(combined_cost[i]))
+#     #
+#     for i, cfg in enumerate(configs):
+#         setattr(cfg, "combined_cost", float(combined_cost[i]))
 
 
-#
-def config_to_kernel_list(cfg) -> list:
-    #
-    frag_x = cfg.list_FRAG_X
-    frag_y = cfg.list_FRAG_Y
-    reg_x  = cfg.list_REG_X
-    reg_y  = cfg.list_REG_Y
-    frag_k = cfg.list_FRAG_K
+# #
+# def config_to_kernel_list(cfg) -> list:
+#     #
+#     frag_x = cfg.list_FRAG_X
+#     frag_y = cfg.list_FRAG_Y
+#     reg_x  = cfg.list_REG_X
+#     reg_y  = cfg.list_REG_Y
+#     frag_k = cfg.list_FRAG_K
 
-    #
-    tile_n = cfg.size_FRAG_X * cfg.size_REG_X
-    tile_m = cfg.size_FRAG_Y * cfg.size_REG_Y
-    tile_k = cfg.size_FRAG_K
+#     #
+#     tile_n = cfg.size_FRAG_X * cfg.size_REG_X
+#     tile_m = cfg.size_FRAG_Y * cfg.size_REG_Y
+#     tile_k = cfg.size_FRAG_K
 
-    #
-    out = [
-        frag_x + frag_y,         # [FRAG_X_idx, FRAG_Y_idx]
-        [frag_x, frag_y],        # [[FRAG_X_idx], [FRAG_Y_idx]]
-        reg_x + reg_y,           # [REG_X_idx, REG_Y_idx]
-        frag_k,                  # [FRAG_K_idx]
-        list(cfg.warp_shape),    # warp shape
-        [cfg.stage],             # pipeline stage
-        cfg.list_tile_sizes,     # tile sizes
-        int(cfg.producer_cnt),   # producer count
-        cfg.double2_flag,        # double2 flag
-        cfg.partial_total_cost_d2,
-        cfg.combined_cost,
-        [tile_m, tile_n, tile_k]
-    ]
+#     #
+#     out = [
+#         frag_x + frag_y,         # [FRAG_X_idx, FRAG_Y_idx]
+#         [frag_x, frag_y],        # [[FRAG_X_idx], [FRAG_Y_idx]]
+#         reg_x + reg_y,           # [REG_X_idx, REG_Y_idx]
+#         frag_k,                  # [FRAG_K_idx]
+#         list(cfg.warp_shape),    # warp shape
+#         [cfg.stage],             # pipeline stage
+#         cfg.list_tile_sizes,     # tile sizes
+#         int(cfg.producer_cnt),   # producer count
+#         cfg.double2_flag,        # double2 flag
+#         cfg.partial_total_cost_d2,
+#         cfg.combined_cost,
+#         [tile_m, tile_n, tile_k]
+#     ]
 
-    return out
+#     return out
 
-#
-def build_kernel_config_list(kept_configs):
-    return [config_to_kernel_list(cfg) for cfg in kept_configs]
+# #
+# def build_kernel_config_list(kept_configs):
+#     return [config_to_kernel_list(cfg) for cfg in kept_configs]
 
-#
-def save_kernel_config_list(path, kept_configs):
-    #
-    data = build_kernel_config_list(kept_configs)
+# #
+# def save_kernel_config_list(path, kept_configs):
+#     #
+#     data = build_kernel_config_list(kept_configs)
 
-    #
-    with open(path, "w") as f:
-        for cfg in data :
-            f.write(str(cfg) + "\n")
+#     #
+#     with open(path, "w") as f:
+#         for cfg in data :
+#             f.write(str(cfg) + "\n")
 
-    print(f"[OK] saved kernel config list to {path}")
+#     print(f"[OK] saved kernel config list to {path}")
 
-#
-def rule_based_pruning(configs, variant_num) -> List[Any]:
-    #
-    add_combined_metric(configs)
+# #
+# def rule_based_pruning(configs, variant_num) -> List[Any]:
+#     #
+#     add_combined_metric(configs)
 
-    #
-    combined_thresholds = {
-        "pruning_rule": [
-            ("partial_total_cost_d2_norm", 0.0, 0.7),
-            ("cta_per_sm_active_est_norm", 0.0, 0.45),
-            # ("stage", 1, 4),
-        ]
-    }
+#     #
+#     combined_thresholds = {
+#         "pruning_rule": [
+#             ("partial_total_cost_d2_norm", 0.0, 0.7),
+#             ("cta_per_sm_active_est_norm", 0.0, 0.45),
+#             # ("stage", 1, 4),
+#         ]
+#     }
 
-    #
-    kept, stats = apply_combined_pruning_rules(configs, combined_thresholds)
+#     #
+#     kept, stats = apply_combined_pruning_rules(configs, combined_thresholds)
 
-    #
-    kept = fill_up_to_k_by_combined_cost(configs, kept, k=10)
+#     #
+#     kept = fill_up_to_k_by_combined_cost(configs, kept, k=10)
 
-    #
-    os.makedirs("./gen_input/selected_configs", exist_ok=True)
-    out_path = f"./gen_input/selected_configs/problem_{str(variant_num).zfill(4)}.txt"
-    if os.path.exists(out_path):
-        os.remove(out_path)
+#     #
+#     os.makedirs("./gen_input/selected_configs", exist_ok=True)
+#     out_path = f"./gen_input/selected_configs/problem_{str(variant_num).zfill(4)}.txt"
+#     if os.path.exists(out_path):
+#         os.remove(out_path)
 
-    save_kernel_config_list(out_path, kept)
+#     save_kernel_config_list(out_path, kept)
 
-    return kept
+#     return kept
 
-#
-def print_config(configs) :
-    cfg = configs[0]
-    print("----- Configuration -----")
-    for attr in dir(cfg):
-        if not attr.startswith("_") and not callable(getattr(cfg, attr)):
-            print(f"{attr} : {getattr(cfg, attr)}")
-    print("-------------------------")
+# #
+# def print_config(configs) :
+#     cfg = configs[0]
+#     print("----- Configuration -----")
+#     for attr in dir(cfg):
+#         if not attr.startswith("_") and not callable(getattr(cfg, attr)):
+#             print(f"{attr} : {getattr(cfg, attr)}")
+#     print("-------------------------")

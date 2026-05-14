@@ -286,7 +286,7 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
                         index_size = tc_helper.tc_helper_find_value(l_representative_problem_size, l_info_split_idx[0][0])
                         
                         #
-                        if 2.0 * index_size < tile_size :
+                        if 2.0 * index_size <= tile_size :
                             dropped_L += 1
                             continue
 
@@ -317,7 +317,7 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
                             index_size = tc_helper.tc_helper_find_value(l_representative_problem_size, l_info_split_idx[1][0])
 
                             #
-                            if 2.0 * index_size < tile_size :
+                            if 2.0 * index_size <= tile_size :
                                 dropped_R += 1
                                 continue
                 

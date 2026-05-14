@@ -73,78 +73,78 @@ def tc_code_kernel_dev_ld_head(f, kernel_name, l_t2_d_decl_var, l_v2_d_decl_var,
         f.write(f", int iter_{internal_index}")
 
     #
-    if data_type == "DOUBLE" :
-        if opt == 1 :
-            f.write(")\n")
-        elif opt == 2 :
-            f.write(", int internal_upperbound)\n")
-        elif opt == 3 :
-            f.write(f",\nint rng_{collapsed_a[0]}, int rng_{collapsed_b[0]})\n")
-        elif opt == 4 :
-            f.write(",\nint internal_upperbound,\n")
-            f.write(f"int rng_{collapsed_a[0]}, int rng_{collapsed_b[0]})\n")
-        elif opt == 5 or opt == 6:
-            #
-            if a_split_flag :
-                tmp_index_a = collapsed_a[0]
-            else :
-                tmp_index_a = ld_tile_order_a[1]
-            if b_split_flag :
-                tmp_index_b = collapsed_b[0]
-            else :
-                tmp_index_b = ld_tile_order_b[1]
+    # if data_type == "DOUBLE" :
+    #     if opt == 1 :
+    #         f.write(")\n")
+    #     elif opt == 2 :
+    #         f.write(", int internal_upperbound)\n")
+    #     elif opt == 3 :
+    #         f.write(f",\nint rng_{collapsed_a[0]}, int rng_{collapsed_b[0]})\n")
+    #     elif opt == 4 :
+    #         f.write(",\nint internal_upperbound,\n")
+    #         f.write(f"int rng_{collapsed_a[0]}, int rng_{collapsed_b[0]})\n")
+    #     elif opt == 5 or opt == 6:
+    #         #
+    #         if a_split_flag :
+    #             tmp_index_a = collapsed_a[0]
+    #         else :
+    #             tmp_index_a = ld_tile_order_a[1]
+    #         if b_split_flag :
+    #             tmp_index_b = collapsed_b[0]
+    #         else :
+    #             tmp_index_b = ld_tile_order_b[1]
             
-            #
-            if opt == 5 :
-                f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b})\n")
-            else :
-                f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b},\n")
-                f.write("int internal_upperbound)\n")
-        elif opt == 7 or opt == 8:
-            #
-            if a_split_flag :
-                tmp_index_a = collapsed_a[0]
-                tmp_index_b_frag = ld_tile_order_b[1]
-                tmp_index_b_reg = ld_tile_order_b[0]
-            elif b_split_flag :
-                tmp_index_a_frag = ld_tile_order_a[1]
-                tmp_index_a_reg = ld_tile_order_a[0]
-                tmp_index_b = collapsed_b[0]
-            else :
-                tmp_index_a_frag = ld_tile_order_a[1]
-                tmp_index_a_reg = ld_tile_order_a[0]
-                tmp_index_b_frag = ld_tile_order_b[1]
-                tmp_index_b_reg = ld_tile_order_b[0]
+    #         #
+    #         if opt == 5 :
+    #             f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b})\n")
+    #         else :
+    #             f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b},\n")
+    #             f.write("int internal_upperbound)\n")
+    #     elif opt == 7 or opt == 8:
+    #         #
+    #         if a_split_flag :
+    #             tmp_index_a = collapsed_a[0]
+    #             tmp_index_b_frag = ld_tile_order_b[1]
+    #             tmp_index_b_reg = ld_tile_order_b[0]
+    #         elif b_split_flag :
+    #             tmp_index_a_frag = ld_tile_order_a[1]
+    #             tmp_index_a_reg = ld_tile_order_a[0]
+    #             tmp_index_b = collapsed_b[0]
+    #         else :
+    #             tmp_index_a_frag = ld_tile_order_a[1]
+    #             tmp_index_a_reg = ld_tile_order_a[0]
+    #             tmp_index_b_frag = ld_tile_order_b[1]
+    #             tmp_index_b_reg = ld_tile_order_b[0]
 
-            #
-            if opt == 7 :
-                if a_split_flag :
-                    f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b_frag},\n")
-                    f.write(f"int rng_{tmp_index_b_reg})\n")
-                elif b_split_flag :
-                    f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b},\n")
-                    f.write(f"int rng_{tmp_index_a_reg})\n")
-                else :
-                    f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b_frag},\n")
-                    f.write(f"int rng_{tmp_index_a_reg}, int rng_{tmp_index_b_reg})\n")
-            else :
-                if a_split_flag :
-                    f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b_frag},\n")
-                    f.write(f"int internal_upperbound,\n")
-                    f.write(f"int rng_{tmp_index_b_reg})\n")
-                elif b_split_flag :
-                    f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b},\n")
-                    f.write(f"int internal_upperbound,\n")
-                    f.write(f"int rng_{tmp_index_a_reg})\n")
-                else :
-                    f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b_frag},\n")
-                    f.write(f"int internal_upperbound,\n")
-                    f.write(f"int rng_{tmp_index_a_reg}, int rng_{tmp_index_b_reg})\n")
+    #         #
+    #         if opt == 7 :
+    #             if a_split_flag :
+    #                 f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b_frag},\n")
+    #                 f.write(f"int rng_{tmp_index_b_reg})\n")
+    #             elif b_split_flag :
+    #                 f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b},\n")
+    #                 f.write(f"int rng_{tmp_index_a_reg})\n")
+    #             else :
+    #                 f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b_frag},\n")
+    #                 f.write(f"int rng_{tmp_index_a_reg}, int rng_{tmp_index_b_reg})\n")
+    #         else :
+    #             if a_split_flag :
+    #                 f.write(f",\nint rng_{tmp_index_a}, int rng_{tmp_index_b_frag},\n")
+    #                 f.write(f"int internal_upperbound,\n")
+    #                 f.write(f"int rng_{tmp_index_b_reg})\n")
+    #             elif b_split_flag :
+    #                 f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b},\n")
+    #                 f.write(f"int internal_upperbound,\n")
+    #                 f.write(f"int rng_{tmp_index_a_reg})\n")
+    #             else :
+    #                 f.write(f",\nint rng_{tmp_index_a_frag}, int rng_{tmp_index_b_frag},\n")
+    #                 f.write(f"int internal_upperbound,\n")
+    #                 f.write(f"int rng_{tmp_index_a_reg}, int rng_{tmp_index_b_reg})\n")
+    # else :
+    if opt == 1 :
+        f.write(")\n")
     else :
-        if opt == 1 :
-            f.write(")\n")
-        else :
-            f.write(f",\nint size_tensor_{input_a}, int size_tensor_{input_b})\n")
+        f.write(f",\nint size_tensor_{input_a}, int size_tensor_{input_b})\n")
 
 #
 def tc_code_kernel_dev_ld_body_memcpy(f, name, opt, tab, data_type, vector_opt) :
@@ -359,7 +359,7 @@ def tc_code_kernel_dev_ld_body_dst_index(l_splited_indices_size, input_a, input_
     
     #
     dst_sm_a.append(f"shm_{input_a}_offset")
-    # print(f"kernel_body : SMEM order a : {SMEM_order_a}, SMEM order b : {SMEM_order_b}", file=sys.stderr)
+
     #
     if SMEM_order_a[2] == internal :    # SMEM Order = [Reg_Y, Frag_Y, Internal]
         #
@@ -1101,10 +1101,12 @@ def tc_code_kernel_dev_ld_body(f, l_input_strides, l_splited_indices_size,
     f.write(f"\t\tint sm_dst_{input_a} = {str_dst_sm_a};\n\n")
 
     #
-    if data_type == "DOUBLE" :
-        tc_code_kernel_dev_ld_body_load_a(f, input_a, ld_tile_order_a, collapsed_a, a_split_flag, opt, data_type, a_double2_flag)
-    else :
-        tc_code_kernel_dev_ld_body_load_a_fp32(f, input_a, opt, data_type, a_double2_flag)
+    # if data_type == "DOUBLE" :
+    #     tc_code_kernel_dev_ld_body_load_a(f, input_a, ld_tile_order_a, collapsed_a, a_split_flag, opt, data_type, a_double2_flag)
+    # else :
+    #     tc_code_kernel_dev_ld_body_load_a_fp32(f, input_a, opt, data_type, a_double2_flag)
+
+    tc_code_kernel_dev_ld_body_load_a_fp32(f, input_a, opt, data_type, a_double2_flag)
 
     #
     f.write("\t}\n\n")
@@ -1139,10 +1141,12 @@ def tc_code_kernel_dev_ld_body(f, l_input_strides, l_splited_indices_size,
     f.write(f"\t\tint sm_dst_{input_b} = {str_dst_sm_b};\n\n")
 
     #
-    if data_type == "DOUBLE" :
-        tc_code_kernel_dev_ld_body_load_b(f, input_b, ld_tile_order_b, collapsed_b, b_split_flag, opt, data_type, b_double2_flag)
-    else :
-        tc_code_kernel_dev_ld_body_load_b_fp32(f, input_b, opt, data_type, b_double2_flag)
+    # if data_type == "DOUBLE" :
+    #     tc_code_kernel_dev_ld_body_load_b(f, input_b, ld_tile_order_b, collapsed_b, b_split_flag, opt, data_type, b_double2_flag)
+    # else :
+    #     tc_code_kernel_dev_ld_body_load_b_fp32(f, input_b, opt, data_type, b_double2_flag)
+   
+    tc_code_kernel_dev_ld_body_load_b_fp32(f, input_b, opt, data_type, b_double2_flag)
 
     #
     f.write("\t}\n")

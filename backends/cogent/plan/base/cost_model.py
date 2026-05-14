@@ -326,7 +326,7 @@ def smem_order(frag_mapping, reg_mapping, internal, mapped_a, mapped_b) :
     # print(f"FROM cost_model ||| SMEM order a : {SMEM_order_a}, SMEM order b : {SMEM_order_b}", file=sys.stderr)
     return SMEM_order_a[2], SMEM_order_b[2]
 
-def smem_padding_size(size_frag_x, size_frag_y, size_internal, size_reg_x, size_reg_y, config, data_type) :
+def smem_padding_size(size_frag_x, size_frag_y, size_internal, size_reg_x, size_reg_y, config, elem_bytes) :
     mapped_index = config.list_FRAG_X + config.list_FRAG_Y + [config.list_FRAG_K[0]] + config.list_REG_X + config.list_REG_Y
     
     mapped_b = []
@@ -356,7 +356,7 @@ def smem_padding_size(size_frag_x, size_frag_y, size_internal, size_reg_x, size_
     b_double2_flag = config.double2_flag[0]
     
     #
-    if data_type == "DOUBLE" :
+    if elem_bytes == 8 :
         #
         wavefront_unit = 16
         padd_per_wavefront_y = wavefront_unit // size_frag_y
