@@ -66,12 +66,14 @@ CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-${REPO_ROOT}/build}"
 CMAKE_TARGET="${CMAKE_TARGET:-bench_tccg}"
 CMAKE_CONFIGURE_ARGS="${CMAKE_CONFIGURE_ARGS:-}"
 CMAKE_BUILD_ARGS="${CMAKE_BUILD_ARGS:--j8}"
+COGENT_CUBIN_COMPILE_OPT="${COGENT_CUBIN_COMPILE_OPT:-DEFAULT}"
 BINARY_PATH="${BINARY_PATH:-${CMAKE_BUILD_DIR}/benchmarks/tccg/bench_tccg}"
 START_EQ="${START_EQ:-1}"
 END_EQ="${END_EQ:-48}"
 VERIFY_FLAG="${VERIFY_FLAG:---verify}"
+BACKEND="${BACKEND:-model}"
 RESULT_ROOT="${RESULT_ROOT:-${SCRIPT_DIR}/results}"
-RESULT_DIR="${RESULT_DIR:-${RESULT_ROOT}/job_${SLURM_JOB_ID:-local}}"
+RESULT_DIR="${RESULT_DIR:-${RESULT_ROOT}/${BACKEND}/job_${SLURM_JOB_ID:-local}}"
 PYTHON_ARGS=()
 
 case "${VERIFY_FLAG}" in
@@ -83,6 +85,26 @@ case "${VERIFY_FLAG}" in
     *)
         echo "[Error] Unsupported VERIFY_FLAG: ${VERIFY_FLAG}" >&2
         echo "[Error] Use one of: '', --verify, --no-verify" >&2
+        exit 1
+        ;;
+esac
+
+case "${BACKEND}" in
+    model|cogent|ttgt)
+        ;;
+    *)
+        echo "[Error] Unsupported BACKEND: ${BACKEND}" >&2
+        echo "[Error] Use one of: model, cogent, ttgt" >&2
+        exit 1
+        ;;
+esac
+
+case "${COGENT_CUBIN_COMPILE_OPT}" in
+    DEFAULT|A100)
+        ;;
+    *)
+        echo "[Error] Unsupported COGENT_CUBIN_COMPILE_OPT: ${COGENT_CUBIN_COMPILE_OPT}" >&2
+        echo "[Error] Use one of: DEFAULT, A100" >&2
         exit 1
         ;;
 esac
@@ -99,8 +121,10 @@ echo "[Slurm] Repo root    : ${REPO_ROOT}"
 echo "[Slurm] Python driver: ${PY_DRIVER}"
 echo "[Slurm] Build dir    : ${CMAKE_BUILD_DIR}"
 echo "[Slurm] Build target : ${CMAKE_TARGET}"
+echo "[Slurm] Cogent cubin : ${COGENT_CUBIN_COMPILE_OPT}"
 echo "[Slurm] Binary       : ${BINARY_PATH}"
 echo "[Slurm] Equation set : ${START_EQ}..${END_EQ}"
+echo "[Slurm] Backend      : ${BACKEND}"
 echo "[Slurm] Verify flag  : ${VERIFY_FLAG}"
 echo "[Slurm] Result dir   : ${RESULT_DIR}"
 echo "[Slurm] Host         : $(hostname)"
@@ -108,10 +132,10 @@ echo "[Slurm] Job ID       : ${SLURM_JOB_ID:-local}"
 
 cd "${REPO_ROOT}"
 
-if [[ ! -f "${CMAKE_BUILD_DIR}/CMakeCache.txt" ]]; then
-    echo "[Slurm] Configuring CMake project"
-    cmake -S "${REPO_ROOT}" -B "${CMAKE_BUILD_DIR}" ${CMAKE_CONFIGURE_ARGS}
-fi
+echo "[Slurm] Configuring CMake project"
+cmake -S "${REPO_ROOT}" -B "${CMAKE_BUILD_DIR}" \
+    -DCOGENT_CUBIN_COMPILE_OPT="${COGENT_CUBIN_COMPILE_OPT}" \
+    ${CMAKE_CONFIGURE_ARGS}
 
 echo "[Slurm] Building ${CMAKE_TARGET}"
 cmake --build "${CMAKE_BUILD_DIR}" --target "${CMAKE_TARGET}" ${CMAKE_BUILD_ARGS}
@@ -122,6 +146,7 @@ PYTHONUNBUFFERED=1 python3 -u "${PY_DRIVER}" \
     --output-dir "${RESULT_DIR}" \
     --start "${START_EQ}" \
     --end "${END_EQ}" \
+    --backend "${BACKEND}" \
     "${PYTHON_ARGS[@]}"
 
 echo "[Slurm] Done. Results saved under ${RESULT_DIR}"

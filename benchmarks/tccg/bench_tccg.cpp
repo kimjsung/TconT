@@ -11,12 +11,30 @@
 #include "tccg_utils.hpp"
 #include "tccg_verify.hpp"
 
+namespace
+{
+TconT::BackendSelection parse_backend_selection(const char* value)
+{
+    if (std::strcmp(value, "model") == 0) {
+        return TconT::BackendSelection::MODEL;
+    }
+    if (std::strcmp(value, "cogent") == 0) {
+        return TconT::BackendSelection::COGENT;
+    }
+    if (std::strcmp(value, "ttgt") == 0 || std::strcmp(value, "ttgt_cutt") == 0) {
+        return TconT::BackendSelection::TTGT_CUTT;
+    }
+    throw std::invalid_argument(std::string("Unknown backend: ") + value);
+}
+}
+
 int main(int argc, char *argv[])
 {
     try
     {
         int target_tccg_benchmark = -1;
         bool verify = false;
+        TconT::BackendSelection backend_selection = TconT::BackendSelection::MODEL;
         const std::vector<TconT::TCEquation>* benchmark_cases = &list_tccg_bench;
         
         for(int i = 1; i < argc; ++i) 
@@ -31,13 +49,20 @@ int main(int argc, char *argv[])
             } 
             else if(std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) 
             {
-                printf("Usage: %s [-b <benchmark_id>] [--tf32|--fp32|--fp64] [--verify]\n", argv[0]);
+                printf("Usage: %s [-b <benchmark_id>] [--tf32|--fp32|--fp64] [--backend <name>] [--verify]\n", argv[0]);
                 printf("  -b, --benchmark <id>       Specify TCCG benchmark ID (0-48)\n");
                 printf("      --tf32                 Run the TF32 benchmark cases\n");
                 printf("      --fp32                 Alias for --tf32 (backward compatibility)\n");
                 printf("      --fp64                 Run the FP64 benchmark cases (default)\n");
+                printf("      --backend <name>       Select execution mode: model, cogent, or ttgt\n");
                 printf("      --verify               Run correctness verification after timing\n");
                 return 0;
+            }
+            else if (std::strcmp(arg, "--backend") == 0)
+            {
+                if (i + 1 < argc) {
+                    backend_selection = parse_backend_selection(argv[++i]);
+                }
             }
             else if (std::strcmp(arg, "--tf32") == 0 || std::strcmp(arg, "--fp32") == 0)
             {
@@ -58,7 +83,8 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        const TconT::TCEquation& desc = (*benchmark_cases)[target_tccg_benchmark];
+        TconT::TCEquation desc = (*benchmark_cases)[target_tccg_benchmark];
+        desc.backend_selection = backend_selection;
         const int64_t operation_count = 2 * static_cast<int64_t>(
             std::sqrt(
                 static_cast<double>(compute_tensor_size(desc.modeA, desc.extent)) *
@@ -77,15 +103,15 @@ int main(int argc, char *argv[])
 
         const size_t scalar_size = TconT::scalar_type_size(desc.scalar_type);
         printf("[TconT] scalar type: %s\n", TconT::scalar_type_name(desc.scalar_type));
+        printf("[TconT] selection  : %s\n", TconT::backend_selection_name(desc.backend_selection));
         printf("[TconT]  Size A: %12ld (words), %16ld (bytes)\n", size_A, size_A * scalar_size);
         printf("[TconT]  Size B: %12ld (words), %16ld (bytes)\n", size_B, size_B * scalar_size);
         printf("[TconT]  Size C: %12ld (words), %16ld (bytes)\n", size_C, size_C * scalar_size);
         printf("[TconT] # FLOPS: %20ld\n", operation_count);
         printf("-----------------------------------------------------------------------\n");
 
-        printf("[TconT] Selct TTGT or Direct\n");
-        
         TconT::ExecutionPlan plan = TconT::plan(desc);
+        printf("[TconT] backend    : %s\n", TconT::backend_name(plan.backend));
         TconT::ExecutionRun run = TconT::prepare(plan);
         TconT::RunOptions options;
         options.warmup = 100;

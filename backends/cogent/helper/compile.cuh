@@ -5,8 +5,48 @@
 #include <sstream>
 #include <stdexcept>
 #include <filesystem>
+#include <vector>
 
-inline void compile_to_cubin(const std::string& cu_path, const std::string& cubin_path)
+enum class CubinCompileOptFlag {
+    Default,
+    A100
+};
+
+inline CubinCompileOptFlag compile_to_cubin_default_flag()
+{
+#if defined(COGENT_CUBIN_COMPILE_OPT_A100)
+    return CubinCompileOptFlag::A100;
+#else
+    return CubinCompileOptFlag::Default;
+#endif
+}
+
+inline std::vector<std::string> compile_to_cubin_opts(CubinCompileOptFlag flag)
+{
+    switch (flag) {
+        case CubinCompileOptFlag::Default:
+            return {
+                "-arch=sm_89",
+                "-I/usr/local/cuda/include",
+                "--std=c++20",
+                "--use_fast_math",
+            };
+        case CubinCompileOptFlag::A100:
+            return {
+                "-arch=sm_80",
+                "-I/apps/cuda/12.9.1/include",
+                "--std=c++20",
+                "--use_fast_math",
+            };
+    }
+
+    return {};
+}
+
+inline void compile_to_cubin(
+    const std::string& cu_path,
+    const std::string& cubin_path,
+    CubinCompileOptFlag flag = compile_to_cubin_default_flag())
 {
     std::ifstream f(cu_path);
     if (!f) throw std::runtime_error("Cannot open: " + cu_path);
@@ -18,22 +58,17 @@ inline void compile_to_cubin(const std::string& cu_path, const std::string& cubi
     nvrtcProgram prog;
     nvrtcCreateProgram(&prog, src.c_str(), cu_path.c_str(), 0, nullptr, nullptr);
 
-    const char* opts[] = {
-        "-arch=sm_89",
-        "-I/usr/local/cuda/include",
-        "--std=c++20",
-        "--use_fast_math"
-    };
-    
-    // For A100
-    // const char* opts[] = {
-    //     "-arch=sm_80",
-    //     "-I/apps/cuda/12.9.1/include",
-    //     "--std=c++20",
-    //     "--use_fast_math"
-    // };
+    const std::vector<std::string> compile_opts = compile_to_cubin_opts(flag);
+    std::vector<const char*> raw_opts;
+    raw_opts.reserve(compile_opts.size());
+    for (const std::string& opt : compile_opts) {
+        raw_opts.push_back(opt.c_str());
+    }
 
-    nvrtcResult res = nvrtcCompileProgram(prog, 4, opts);
+    nvrtcResult res = nvrtcCompileProgram(
+        prog,
+        static_cast<int>(raw_opts.size()),
+        raw_opts.data());
 
     if (res != NVRTC_SUCCESS) {
         size_t logSize;

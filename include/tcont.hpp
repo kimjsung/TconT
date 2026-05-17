@@ -39,6 +39,36 @@ namespace TconT
         COGENT, 
         TTGT_CUTT
     };
+
+    enum class BackendSelection {
+        MODEL,
+        COGENT,
+        TTGT_CUTT
+    };
+
+    constexpr const char* backend_name(Backend backend)
+    {
+        switch (backend) {
+            case Backend::COGENT:
+                return "cogent";
+            case Backend::TTGT_CUTT:
+                return "ttgt";
+        }
+        return "unknown";
+    }
+
+    constexpr const char* backend_selection_name(BackendSelection selection)
+    {
+        switch (selection) {
+            case BackendSelection::MODEL:
+                return "model";
+            case BackendSelection::COGENT:
+                return "cogent";
+            case BackendSelection::TTGT_CUTT:
+                return "ttgt";
+        }
+        return "unknown";
+    }
     
     struct TCEquation {
         std::vector<char> modeC;
@@ -48,6 +78,7 @@ namespace TconT
         ScalarType scalar_type = ScalarType::Float64;
 
         std::unordered_map<char, int64_t> extent;
+        BackendSelection backend_selection = BackendSelection::MODEL;
     };
 
     struct ContractionResult {

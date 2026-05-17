@@ -6,6 +6,14 @@ set_target_properties(cogent PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+if (COGENT_CUBIN_COMPILE_OPT STREQUAL "DEFAULT")
+    target_compile_definitions(cogent PUBLIC COGENT_CUBIN_COMPILE_OPT_DEFAULT)
+elseif (COGENT_CUBIN_COMPILE_OPT STREQUAL "A100")
+    target_compile_definitions(cogent PUBLIC COGENT_CUBIN_COMPILE_OPT_A100)
+else()
+    message(FATAL_ERROR "Unsupported COGENT_CUBIN_COMPILE_OPT='${COGENT_CUBIN_COMPILE_OPT}'. Use DEFAULT or A100.")
+endif()
+
 find_package(nlohmann_json CONFIG QUIET)
 
 target_include_directories(cogent PUBLIC

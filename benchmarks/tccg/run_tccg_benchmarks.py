@@ -14,6 +14,7 @@ RESULT_PATTERN = re.compile(
     r"gflops=(?P<gflops>[0-9.]+) validation=(?P<validation>\w+)$")
 
 PRECISIONS = ("fp64", )
+BACKENDS = ("model", "cogent", "ttgt")
 
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parents[2]
@@ -46,11 +47,16 @@ def parse_args() -> argparse.Namespace:
         "--no-verify",
         action="store_true",
         help="Skip validation and mark validation as SKIP")
+    parser.add_argument(
+        "--backend",
+        choices=BACKENDS,
+        default="model",
+        help="Backend selection to pass to bench_tccg (default: model)")
     return parser.parse_args()
 
 
-def run_benchmark(binary: Path, equation: int, precision: str, verify: bool) -> dict:
-    cmd = [str(binary), "-b", str(equation), f"--{precision}"]
+def run_benchmark(binary: Path, equation: int, precision: str, backend: str, verify: bool) -> dict:
+    cmd = [str(binary), "-b", str(equation), f"--{precision}", "--backend", backend]
     if verify:
         cmd.append("--verify")
 
@@ -61,6 +67,7 @@ def run_benchmark(binary: Path, equation: int, precision: str, verify: bool) -> 
         return {
             "equation": equation,
             "precision": precision,
+            "backend": backend,
             "operation_count": "",
             "time_ms": "",
             "gflops": "",
@@ -75,6 +82,7 @@ def run_benchmark(binary: Path, equation: int, precision: str, verify: bool) -> 
             return {
                 "equation": int(match.group("equation")),
                 "precision": match.group("precision"),
+                "backend": backend,
                 "operation_count": int(match.group("operations")),
                 "time_ms": float(match.group("time_ms")),
                 "gflops": float(match.group("gflops")),
@@ -86,6 +94,7 @@ def run_benchmark(binary: Path, equation: int, precision: str, verify: bool) -> 
     return {
         "equation": equation,
         "precision": precision,
+        "backend": backend,
         "operation_count": "",
         "time_ms": "",
         "gflops": "",
@@ -103,6 +112,7 @@ def write_results(path: Path, rows: list[dict]) -> None:
     fieldnames = [
         "equation",
         "precision",
+        "backend",
         "operation_count",
         "time_ms",
         "gflops",
@@ -131,28 +141,29 @@ def main() -> int:
     log(f"Benchmark binary : {args.binary}")
     log(f"Output directory : {args.output_dir}")
     log(f"Equation range   : {args.start}..{args.end}")
+    log(f"Backend          : {args.backend}")
     log(f"Verification     : {'enabled' if verify else 'disabled'}")
 
     for precision in PRECISIONS:
         rows = []
-        output_path = args.output_dir / f"tccg_{precision}_results.csv"
+        output_path = args.output_dir / f"tccg_{args.backend}_{precision}_results.csv"
         log(f"Starting precision sweep: {precision}")
 
         for equation in range(args.start, args.end + 1):
-            log(f"[{precision}] starting equation={equation}")
-            row = run_benchmark(args.binary, equation, precision, verify)
+            log(f"[{args.backend}/{precision}] starting equation={equation}")
+            row = run_benchmark(args.binary, equation, precision, args.backend, verify)
             rows.append(row)
             log(
-                f"[{precision}] equation={row['equation']} "
+                f"[{args.backend}/{precision}] equation={row['equation']} "
                 f"operations={row['operation_count']} time_ms={row['time_ms']} "
                 f"gflops={row['gflops']} validation={row['validation']}")
             if row["error_message"]:
-                log(f"[{precision}] equation={row['equation']} error={row['error_message']}")
+                log(f"[{args.backend}/{precision}] equation={row['equation']} error={row['error_message']}")
                 if row["raw_output"]:
-                    log(f"[{precision}] equation={row['equation']} raw_output:\n{row['raw_output']}")
+                    log(f"[{args.backend}/{precision}] equation={row['equation']} raw_output:\n{row['raw_output']}")
 
         write_results(output_path, rows)
-        log(f"Saved {precision} results to {output_path}")
+        log(f"Saved {args.backend}/{precision} results to {output_path}")
 
     return 0
 

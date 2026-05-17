@@ -1178,7 +1178,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
 
         for d_front, d_back in divisors:
             valid_combinations.append([comb, [d_front, d_back]])
-    print(f"valid_combination : {valid_combinations}", file=sys.stderr)
+    # print(f"valid_combination : {valid_combinations}", file=sys.stderr)
     external_comb = []
     for comb, shape in valid_combinations :
         if a_flag :
@@ -1186,7 +1186,7 @@ def index_based_config_selection(l_tensors, index_to_extent, index_mapping, data
         else :
             results = fill_remaining_indices(comb, small_tile, big_tile, k_indices)
         external_comb.append([results, shape, comb])
-    print(f"external_comb: {external_comb}", file=sys.stderr)
+    # print(f"external_comb: {external_comb}", file=sys.stderr)
     
     config_struct = make_full_comb(external_comb, tile_k, index_mapping, a_flag, data_type, out_fvi)
 

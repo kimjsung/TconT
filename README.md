@@ -17,6 +17,22 @@ Current repository status:
 - OpenMP support
 - NVIDIA GPU architecture currently configured for `sm_89`
 
+## GPU Architecture
+
+If you move to a different NVIDIA GPU architecture, update the following places:
+
+- `CMakeLists.txt`
+  - Update `CMAKE_CUDA_ARCHITECTURES`
+  - This controls the normal TconT CMake build.
+
+- `backends/cogent/helper/compile.cuh`
+  - Update the `-arch=sm_XX` value used by Cogent runtime compilation.
+
+- `external/cutt/Makefile`
+  - Update `GENCODE_FLAGS`
+  - This is only needed if you build vendored cuTT manually with `make`.
+  - It is not required for the normal TconT CMake build.
+
 The top-level build currently expects:
 - `find_package(CUDAToolkit REQUIRED)`
 - `find_package(OpenMP REQUIRED)`
@@ -112,6 +128,7 @@ Current CLI options:
 - `--fp64`: run the FP64 benchmark cases
 - `--tf32`: run the TF32 benchmark cases
 - `--fp32`: alias for `--tf32`
+- `--backend <name>`: select `model`, `cogent`, or `ttgt`
 - `--verify`: run correctness verification after timing
 - `-h`, `--help`: print usage
 
@@ -164,16 +181,21 @@ Verification returns a structured pass/fail result that is emitted by `bench_tcc
 
 ## Run All TCCG Benchmarks
 
-Use the batch runner to execute every equation for both precisions and save one CSV per precision:
+Use the batch runner to execute every equation for the selected backend and save one CSV per precision:
 
 ```bash
 python3 benchmarks/tccg/run_tccg_benchmarks.py
 ```
 
+Select a backend explicitly:
+
+```bash
+python3 benchmarks/tccg/run_tccg_benchmarks.py --backend ttgt
+```
+
 Default outputs:
 
-- `benchmarks/tccg/results/tccg_fp64_results.csv`
-- `benchmarks/tccg/results/tccg_tf32_results.csv`
+- `benchmarks/tccg/results/tccg_model_fp64_results.csv`
 
 Useful options:
 
@@ -181,17 +203,62 @@ Useful options:
 - `--output-dir <dir>`: choose a different results directory
 - `--start <id>`: first equation index to run
 - `--end <id>`: last equation index to run, inclusive
+- `--backend <name>`: choose `model`, `cogent`, or `ttgt`
 - `--no-verify`: skip correctness checking
 
 Each CSV contains:
 
 - `equation`
 - `precision`
+- `backend`
 - `operation_count`
 - `time_ms`
 - `gflops`
 - `validation`
 - `error_message`
+
+## Run Batch Job
+
+Use `run_all.sh` to configure, build, and launch the full TCCG sweep in one step:
+
+```bash
+./run_all.sh
+```
+
+Choose a backend with the `BACKEND` environment variable:
+
+```bash
+BACKEND=ttgt ./run_all.sh
+BACKEND=cogent ./run_all.sh
+BACKEND=model ./run_all.sh
+```
+
+Choose the Cogent cubin compile preset at build time:
+
+```bash
+BACKEND=cogent COGENT_CUBIN_COMPILE_OPT=A100 ./run_all.sh
+```
+
+For Slurm:
+
+```bash
+sbatch --export=ALL,BACKEND=ttgt run_all.sh
+```
+
+Important environment variables:
+
+- `BACKEND`: one of `model`, `cogent`, `ttgt`
+- `COGENT_CUBIN_COMPILE_OPT`: one of `DEFAULT`, `A100`
+- `START_EQ`: first equation index
+- `END_EQ`: last equation index
+- `VERIFY_FLAG`: `--verify` or `--no-verify`
+- `RESULT_DIR`: override the result directory
+
+Default result layout from `run_all.sh`:
+
+- `results/model/job_<jobid>/...`
+- `results/cogent/job_<jobid>/...`
+- `results/ttgt/job_<jobid>/...`
 
 ## Current Limitations
 
@@ -234,8 +301,17 @@ TconT/
 │   │   └── bin/
 │   └── ttgt_cutt/
 │       ├── CMakeLists.txt
-│       └── include/
-│           └── ttgt_cutt.hpp
+│       ├── include/
+│       │   ├── ttgt_cutt.hpp
+│       │   ├── ttgt_cutt_backend.hpp
+│       │   └── ttgt_cutt_models.hpp
+│       └── src/
+│           ├── ttgt_cutt_backend.cpp
+│           ├── ttgt_cutt.cpp
+│           ├── ttgt_cutt_models.cpp
+│           └── ttgt/
+├── external/
+│   └── cutt/
 ├── benchmarks/
 │   ├── CMakeLists.txt
 │   ├── tccg/

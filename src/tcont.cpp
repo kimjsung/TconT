@@ -9,11 +9,19 @@
 
 #include "tcont.hpp"
 #include "cogent.hpp"
+#include "ttgt_cutt_backend.hpp"
 
 namespace TconT
 {
     namespace
     {
+        Backend select_backend_by_model(const TCEquation& desc)
+        {
+            (void)desc;
+            std::cout << "[TconT] Model selection is not implemented yet; falling back to Cogent" << std::endl;
+            return Backend::COGENT;
+        }
+
         void check_cuda(cudaError_t status, const char* expr)
         {
             if (status != cudaSuccess) {
@@ -50,15 +58,33 @@ namespace TconT
 
     ExecutionPlan plan(const TCEquation& desc) {
         ExecutionPlan execution_plan;
+        Backend selected_backend = Backend::COGENT;
 
-        // approach selection by model
-        // model()
+        switch (desc.backend_selection) {
+            case BackendSelection::MODEL:
+                selected_backend = select_backend_by_model(desc);
+                break;
+            case BackendSelection::COGENT:
+                selected_backend = Backend::COGENT;
+                break;
+            case BackendSelection::TTGT_CUTT:
+                selected_backend = Backend::TTGT_CUTT;
+                break;
+        }
 
-        std::cout << "[TconT] Direct Selected" << std::endl;
-        execution_plan.backend = Backend::COGENT;
+        switch (selected_backend) {
+            case Backend::COGENT:
+                std::cout << "[TconT] Cogent selected" << std::endl;
+                execution_plan.impl = cogent::plan_cogent(desc);
+                break;
+            case Backend::TTGT_CUTT:
+                std::cout << "[TconT] TTGT selected" << std::endl;
+                execution_plan.impl = ttgt_cutt_backend::plan_ttgt_cutt(desc);
+                break;
+        }
+
+        execution_plan.backend = selected_backend;
         execution_plan.equation = desc;
-        execution_plan.impl = cogent::plan_cogent(desc);
-        
         return execution_plan;
     }
 

@@ -200,7 +200,7 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
             #   Output: List of Configurations 
             #
             index_mapping = tc_mapping.assign_mapping(tensors, index_to_extent)
-            print(f"index mapping : {index_mapping}", file=sys.stderr)
+            # print(f"index mapping : {index_mapping}", file=sys.stderr)
             config_struct, swap_flag, m_frag_rank, m_reg_rank = tc_pruning.index_based_config_selection(tensors, index_to_extent, index_mapping, data_type)
             l_config = tc_alg_config.build_configurations(each_tc, l_info_split_idx, l_representative_problem_size, index_mapping, swap_flag, opt_print, data_type)
             # print(f"index_mapping : {index_mapping}", file=sys.stderr)
@@ -291,31 +291,31 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                     #     with open(f"model/config_info3/eq_{equation}.txt", "a") as f :
                     #         f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size}\n")
 
-                    for i in pruned_config :
-                        frag_n = i.list_FRAG_X[0]
-                        reg_n = i.list_REG_X[0]
-                        frag_n_tile = i.size_FRAG_X
-                        reg_n_tile = i.size_REG_X
-                        is_fvi_n = 1
+                    # for i in pruned_config :
+                    #     frag_n = i.list_FRAG_X[0]
+                    #     reg_n = i.list_REG_X[0]
+                    #     frag_n_tile = i.size_FRAG_X
+                    #     reg_n_tile = i.size_REG_X
+                    #     is_fvi_n = 1
 
-                        frag_m = i.list_FRAG_Y[0]
-                        reg_m = i.list_REG_Y[0]
-                        frag_m_tile = i.size_FRAG_Y
-                        reg_m_tile = i.size_REG_Y
-                        is_fvi_m = 0
+                    #     frag_m = i.list_FRAG_Y[0]
+                    #     reg_m = i.list_REG_Y[0]
+                    #     frag_m_tile = i.size_FRAG_Y
+                    #     reg_m_tile = i.size_REG_Y
+                    #     is_fvi_m = 0
                         
-                        internal = i.list_FRAG_K[0]
-                        internal_size = i.size_FRAG_K
+                    #     internal = i.list_FRAG_K[0]
+                    #     internal_size = i.size_FRAG_K
 
-                        warp_shape = i.warp_shape
+                    #     warp_shape = i.warp_shape
 
-                        smem_size = i.smem_per_block
+                    #     smem_size = i.smem_per_block
 
-                        mem_cost = i.cost_total_v2
-                        stage = i.stage
-                        os.makedirs("tmp", exist_ok=True)
-                        with open(f"tmp/eq_{equation}.txt", "a") as f :
-                            f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size},{mem_cost},{stage}\n")
+                    #     mem_cost = i.cost_total_v2
+                    #     stage = i.stage
+                    #     os.makedirs("tmp", exist_ok=True)
+                    #     with open(f"tmp/eq_{equation}.txt", "a") as f :
+                    #         f.write(f"{equation},{variant_num},{frag_n},{reg_n},{frag_n_tile},{reg_n_tile},{is_fvi_n},{frag_m},{reg_m},{frag_m_tile},{reg_m_tile},{is_fvi_m},{internal},{internal_size},{warp_shape},{smem_size},{mem_cost},{stage}\n")
 
 
             else :
