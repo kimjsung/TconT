@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cuda_runtime_api.h>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -121,14 +122,14 @@ namespace TconT
         std::shared_ptr<RunImpl> impl;
     };
 
+    
+    void check_cuda(cudaError_t status, const char* expr);
+    double compute_gflops(const TCEquation& equation, float avg_ms);
+    
     ExecutionPlan plan(const TCEquation& desc);
     ExecutionRun prepare(const ExecutionPlan& plan);
     void launch(const ExecutionRun& run);
     const void* input_left_host_data(const ExecutionRun& run);
     const void* input_right_host_data(const ExecutionRun& run);
     void copy_output_to_host(const ExecutionRun& run, void* destination, size_t bytes);
-    ContractionResult benchmark(const ExecutionRun& run, const TCEquation& equation, const RunOptions& options = {});
-    ContractionResult benchmark(const ExecutionPlan& plan, const RunOptions& options = {});
-    ContractionResult contract(const ExecutionPlan& plan);
-    ContractionResult contract(const TCEquation& desc);
 }

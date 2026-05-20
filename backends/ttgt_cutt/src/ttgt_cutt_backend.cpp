@@ -423,75 +423,7 @@ std::shared_ptr<TconT::PlanImpl> plan_ttgt_cutt(const TconT::TCEquation& desc)
     check_cuda_status(cudaFree(nullptr), "cudaFree(nullptr)");
 
     ttgt_cuTT_handle plan;
-    tc info_tc = build_tc_from_equation(desc);
-    tiles* result_tiles = nullptr;
-    tt* result_tt_output = nullptr;
-    tt* result_tt_input_left = nullptr;
-    tt* result_tt_input_right = nullptr;
-
-    try {
-        const int manual_config = -1;
-        const int result_type = ttgt_enumeration(
-            &info_tc,
-            result_tiles,
-            result_tt_output,
-            result_tt_input_left,
-            result_tt_input_right,
-            manual_config,
-            manual_config);
-
-        plan.swap_AB = (result_type == TYPE_BA);
-        plan.info_trans_C_perm.assign(
-            result_tt_output->ttlg_perms,
-            result_tt_output->ttlg_perms + result_tt_output->len_indice);
-        plan.info_trans_A_perm.assign(
-            result_tt_input_left->ttlg_perms,
-            result_tt_input_left->ttlg_perms + result_tt_input_left->len_indice);
-        plan.info_trans_B_perm.assign(
-            result_tt_input_right->ttlg_perms,
-            result_tt_input_right->ttlg_perms + result_tt_input_right->len_indice);
-
-        const std::vector<char>& left_modes = plan.swap_AB ? desc.modeB : desc.modeA;
-        const std::vector<char>& right_modes = plan.swap_AB ? desc.modeA : desc.modeB;
-
-        validate_permutation(plan.info_trans_A_perm, left_modes.size(), "A");
-        validate_permutation(plan.info_trans_B_perm, right_modes.size(), "B");
-
-        fill_dims_from_modes(plan.info_trans_A_dim, left_modes, desc.extent);
-        fill_dims_from_modes(plan.info_trans_B_dim, right_modes, desc.extent);
-        plan.info_trans_C_dim = build_transposed_input_dims(
-            desc.modeC,
-            desc.extent,
-            plan.info_trans_C_perm);
-
-        plan.transpose_input_left = !is_identity_permutation(plan.info_trans_A_perm);
-        plan.transpose_input_right = !is_identity_permutation(plan.info_trans_B_perm);
-        plan.transpose_output = !is_identity_permutation(plan.info_trans_C_perm);
-
-        if (plan.swap_AB) {
-            plan.gemm_m = result_tiles->dgemm_n;
-            plan.gemm_n = result_tiles->dgemm_m;
-        } else {
-            plan.gemm_m = result_tiles->dgemm_m;
-            plan.gemm_n = result_tiles->dgemm_n;
-        }
-        plan.gemm_k = result_tiles->dgemm_k;
-        plan.gemm_trans_A = compute_gemm_transpose_for_left(desc, left_modes, plan.info_trans_A_perm);
-        plan.gemm_trans_B = compute_gemm_transpose_for_right(desc, right_modes, plan.info_trans_B_perm);
-    } catch (...) {
-        destroy_tt(result_tt_output);
-        destroy_tt(result_tt_input_left);
-        destroy_tt(result_tt_input_right);
-        destroy_tiles(result_tiles);
-        destroy_tc(info_tc);
-        throw;
-    }
-
-    destroy_tt(result_tt_output);
-    destroy_tt(result_tt_input_left);
-    destroy_tt(result_tt_input_right);
-    destroy_tiles(result_tiles);
-    destroy_tc(info_tc);
+    ttgt_cuTT_plan(plan, desc.modeC, desc.modeA, desc.modeB, desc.extent);
 
     return std::make_shared<TTGTPlanImpl>(std::move(plan), desc);
 }

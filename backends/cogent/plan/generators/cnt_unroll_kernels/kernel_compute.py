@@ -164,15 +164,27 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
     
     #
     if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
-        f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag[2];\n")
+        if left_frag_size == 16 :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag[2][2];\n")
+        else :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag[2];\n")
     else :
-        f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag;\n")
+        if left_frag_size == 16 :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag[2];\n")
+        else :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 4, double, nvcuda::wmma::row_major> {input_a}_frag;\n")
 
     #
     if b_double2_flag and (SMEM_order_b[2] == ld_tile_order_b[0]) :
-        f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag[2];\n\n")
+        if right_frag_size == 16 :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag[2][2];\n\n")
+        else :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag[2];\n\n")
     else :
-        f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag;\n\n")
+        if right_frag_size == 16 :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag[2];\n\n")
+        else :
+            f.write(f"\tnvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 4, double, nvcuda::wmma::row_major> {input_b}_frag;\n\n")
     
     #
     f.write(f"\tconst int lane = threadIdx.x & 31;\n")
@@ -267,44 +279,112 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
     if a_double2_flag :
         if SMEM_order_a[2] == ld_tile_order_a[0] :
             f.write("\t" * tab + f"const int xor_offset_{input_a} = (wrow ^ {input_a}_fragment_offset);\n")
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + {input_a}_lane_offset;\n")
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + {input_a}_lane_offset;\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + {input_a}_lane_offset + (ld_stride_a << 3);\n")
+            else :
+                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + {input_a}_lane_offset;\n")
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
             if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + ({input_a}_fragment_offset << 2) + {input_a}_lane_offset;\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + (({input_a}_fragment_offset ^ 2) << 2) + {input_a}_lane_offset;\n")
             else :
                 f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + ({input_a}_fragment_offset << 2) + {input_a}_lane_offset;\n")
         elif SMEM_order_a[2] == ld_tile_order_a[2] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset + {8 * size_internal};\n")
+            else :
+                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
     else :
         if SMEM_order_a[2] == ld_tile_order_a[0] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset + {8 * size_internal};\n")
+            else :
+                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+            if left_frag_size == 16 :
+                if reg_padd_y[2] == 0 :
+                    if reg_padd_y[1] == 0 :
+                        f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+                        f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset + (TILE_{ld_tile_order_a[2].capitalize()} << 3);\n")
+                    else :
+                        f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+                        f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[1]});\n")
+                else :
+                    if reg_padd_y[1] == 0 :
+                        f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+                        f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[2]});\n")
+                    else :
+                        tmp_cnt_per_padd_y = reg_padd_y[1] + reg_padd_y[2]
+                        f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
+                        f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_y});\n")
+            else :
+                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
         else :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a);\n")
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int tmp_{input_a}0 = shm_{input_a}_offset + (wrow * ld_stride_a);\n")
+                f.write("\t" * tab + f"const int tmp_{input_a}1 = shm_{input_a}_offset + (wrow * ld_stride_a) + (TILE_{ld_tile_order_a[2].capitalize()} << 3);\n")
+            else :
+                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a);\n")
 
     #
     if b_double2_flag :
         if SMEM_order_b[2] == ld_tile_order_b[0] :
             f.write("\t" * tab + f"const int xor_offset_{input_b} = (wcol ^ {input_b}_fragment_offset);\n")
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + {input_b}_lane_offset;\n")
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + {input_b}_lane_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + {input_b}_lane_offset + (ld_stride_b << 3);\n")
+            else :
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + {input_b}_lane_offset;\n")
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             if right_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + ({input_b}_fragment_offset << 2) + {input_b}_lane_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + (({input_b}_fragment_offset ^ 2) << 2) + {input_b}_lane_offset;\n")
             else :
-                f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + ({input_b}_fragment_offset << 2) + {input_b}_lane_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + ({input_b}_fragment_offset << 2) + {input_b}_lane_offset;\n")
         else :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset + {8 * size_internal};\n")
+            else :
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
     else :
         if SMEM_order_b[2] == ld_tile_order_b[0] :        
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+                f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset + {8 * size_internal};\n")
+            else :
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+            if right_frag_size == 16 :
+                if reg_padd_x[2] == 0 :
+                    if reg_padd_x[1] == 0 :
+                        f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+                        f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset + (TILE_{ld_tile_order_a[2].capitalize()} << 3);\n")
+                    else :
+                        f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+                        f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[1]});\n")
+                else :
+                    if reg_padd_x[1] == 0 :
+                        f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+                        f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[2]});\n")
+                    else :
+                        tmp_cnt_per_padd_x = reg_padd_x[1] + reg_padd_x[2]
+                        f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
+                        f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset + ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_x});\n")
+            else :
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
         else :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b);\n")
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int tmp_{input_b}0 = shm_{input_b}_offset + (wcol * ld_stride_b);\n")
+                f.write("\t" * tab + f"int tmp_{input_b}1 = shm_{input_b}_offset + (wcol * ld_stride_b) + (TILE_{ld_tile_order_a[2].capitalize()} << 3);\n")
+            else :
+                f.write("\t" * tab + f"int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b);\n")
 
     f.write("\n")
-
+    
     #
     if opt % 2 == 0 :
         f.write("\tfor(int ll = 0; ll < TILE_UNIT - internal_upperbound; ll += 4)\n")
@@ -316,145 +396,169 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
     f.write("\t" * tab + "{\n"); tab += 1
 
     if a_double2_flag :
-        #
         if SMEM_order_a[2] == ld_tile_order_a[0] :
             ll_offset = (int)(math.log2(left_reg_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = ll << {ll_offset};\n")
-        #
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << {ll_offset});\n")
+                f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (ll << {ll_offset});\n")
+            else :
+                f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << {ll_offset});\n")
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
             ll_offset = (int)(math.log2(left_frag_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = ll << {ll_offset};\n")
-        #
-        else :
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-    #
-    else :
-        #
-        if SMEM_order_a[2] == ld_tile_order_a[0] :
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = (ll << 3);\n")
-        #
-        elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            #
             if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = ((ll << 3) + (ll >> 2));\n")
-            #
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << {ll_offset});\n")
+                f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (ll << {ll_offset});\n")
             else :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = ((ll << 3) + (ll >> 1));\n")
-        #
+                f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << {ll_offset});\n")
+        elif SMEM_order_a[2] == ld_tile_order_a[2] :
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
+                f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
+            else :
+                f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
+    else :
+        if SMEM_order_a[2] == ld_tile_order_a[0] :
+            if left_frag_size == 16 :
+                cnt_offset = (int)(math.log2(8 * size_internal))
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << 3);\n")
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}1 + (ll << 3);\n")
+            else :
+                f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << 3);\n")
+        elif SMEM_order_a[2] == ld_tile_order_a[1] :
+            if left_frag_size == 16 :
+                f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << 3) + (ll >> 2);\n")
+                f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (ll << 3) + (ll >> 2);\n")
+            else :
+                f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << 3) + (ll >> 2);\n")
         else :
-            #
-            if size_internal == 8 :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ (ll << 1)) + (ll << 3));\n")
+            if left_frag_size == 16 :
+                if size_internal == 8 :
+                    f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << 3) + ({input_a}_fragment_offset ^ (ll << 1));\n")
+                    f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (ll << 3) + ({input_a}_fragment_offset ^ (ll << 1));\n")
+                else :
+                    f.write("\t" * tab + f"const int shm_{input_a}0 = tmp_{input_a}0 + (ll << 3) + ({input_a}_fragment_offset ^ ll);\n")
+                    f.write("\t" * tab + f"const int shm_{input_a}1 = tmp_{input_a}1 + (ll << 3) + ({input_a}_fragment_offset ^ ll);\n")
             else :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ ll) + (ll << 3));\n")
+                if size_internal == 8 :
+                    f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << 3) + ({input_a}_fragment_offset ^ (ll << 1));\n")
+                else :
+                    f.write("\t" * tab + f"const int shm_{input_a} = tmp_{input_a} + (ll << 3) + ({input_a}_fragment_offset ^ ll);\n")
 
     #
     if b_double2_flag :
-        #
         if SMEM_order_b[2] == ld_tile_order_b[0] :
             ll_offset = (int)(math.log2(right_reg_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << {ll_offset});\n")
-        #
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + (ll << {ll_offset});\n")
+                f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + (ll << {ll_offset});\n")
+            else :
+                f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + (ll << {ll_offset});\n")
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             ll_offset = (int)(math.log2(right_frag_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << {ll_offset});\n")
-        #
-        else :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-    #
-    else :
-        #
-        if SMEM_order_b[2] == ld_tile_order_b[0] :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3);\n")
-        #
-        elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            #
             if right_frag_size == 16 :
-                f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3) + (ll >> 2);\n")
-            #
+                f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + (ll << {ll_offset});\n")
+                f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + (ll << {ll_offset});\n")
             else :
-                f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3) + (ll >> 1);\n")
-        #
+                f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + (ll << {ll_offset});\n")
         else :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3);\n")
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
+                f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
+            else :
+                f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
+    else :
+        if SMEM_order_b[2] == ld_tile_order_b[0] :        
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + (ll << 3);\n")
+                f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + (ll << 3);\n")
+            else :
+                f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + (ll << 3);\n")
+        elif SMEM_order_b[2] == ld_tile_order_b[1] :
+            if right_frag_size == 16 :
+                f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + (ll << 3) + (ll >> 2);\n")
+                f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + (ll << 3) + (ll >> 2);\n")
+            else :
+                f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + (ll << 3) + (ll >> 1);\n")
+        else :
+            if right_frag_size == 16 :
+                if size_internal == 8 :
+                    f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + ({input_b}_fragment_offset ^ (ll << 1)) + (ll << 3);\n")
+                    f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + ({input_b}_fragment_offset ^ (ll << 1)) + (ll << 3);\n")
+                else :
+                    f.write("\t" * tab + f"int shm_{input_b}0 = tmp_{input_b}0 + ({input_b}_fragment_offset ^ ll) + (ll << 3);\n")
+                    f.write("\t" * tab + f"int shm_{input_b}1 = tmp_{input_b}1 + ({input_b}_fragment_offset ^ ll) + (ll << 3);\n")
+            else :
+                if size_internal == 8 :
+                    f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + ({input_b}_fragment_offset ^ (ll << 1)) + (ll << 3);\n")
+                else :
+                    f.write("\t" * tab + f"int shm_{input_b} = tmp_{input_b} + ({input_b}_fragment_offset ^ ll) + (ll << 3);\n")
 
     #
     if a_double2_flag :
         #
         if SMEM_order_a[2] == ld_tile_order_a[0] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a} += 2)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(left_reg_size))
-
+            
             #
             if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a});\n")
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (xor_offset_{input_a} ^ iter_{input_a});\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (xor_offset_{input_a} ^ iter_{input_a});\n\n")
 
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (ld_stride_a << 3)) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (ld_stride_a << 3)) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"double2 tmp0_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset0])[0];\n")
+                f.write("\t" * tab + f"double2 tmp1_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset1])[0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[0][0].x[0] = tmp0_{input_a}.x;\n")
+                f.write("\t" * tab + f"{input_a}_frag[0][1].x[0] = tmp0_{input_a}.y;\n")
+                f.write("\t" * tab + f"{input_a}_frag[1][0].x[0] = tmp1_{input_a}.x;\n")
+                f.write("\t" * tab + f"{input_a}_frag[1][1].x[0] = tmp1_{input_a}.y;\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a}) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (xor_offset_{input_a} ^ iter_{input_a});\n\n")
 
-            f.write("\t" * tab + f"double2 reg_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset])[0];\n")
-            f.write("\t" * tab + f"{input_a}_frag[0].x[0] = reg_{input_a}.x;\n")
-            f.write("\t" * tab + f"{input_a}_frag[1].x[0] = reg_{input_a}.y;\n\n")
+                f.write("\t" * tab + f"double2 tmp_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset])[0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = tmp_{input_a}.x;\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = tmp_{input_a}.y;\n\n")
         #
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(left_frag_size))
 
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (iter_{input_a} * ld_stride_a);\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (iter_{input_a} * ld_stride_a);\n\n")
 
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (({input_a}_fragment_offset ^ (cnt_{input_a} << 1)) << 2);\n")
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = sm_{input_a}[{input_a}_offset0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = sm_{input_a}[{input_a}_offset1];\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (iter_{input_a} * ld_stride_a);\n\n")
 
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
         #
         else :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
 
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (iter_{input_a} * ld_stride_a);\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (iter_{input_a} * ld_stride_a);\n\n")
 
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = sm_{input_a}[{input_a}_offset0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = sm_{input_a}[{input_a}_offset1];\n\n")
 
-                cnt_offset = (int)(math.log2(8 * size_internal))
-
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} << {cnt_offset});\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (iter_{input_a} * ld_stride_a);\n")
 
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
     #
     else :
-        #f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + "#pragma unroll\n")
         f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
 
@@ -462,120 +566,74 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if SMEM_order_a[2] == ld_tile_order_a[0] :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (iter_{input_a} * ld_stride_a);\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (iter_{input_a} * ld_stride_a);\n\n")
 
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                cnt_offset = (int)(math.log2(8 * size_internal))
-
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} << {cnt_offset});\n")
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = sm_{input_a}[{input_a}_offset0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = sm_{input_a}[{input_a}_offset1];\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (iter_{input_a} * ld_stride_a);\n\n")
 
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
         #
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3) + (ll >> 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-                    
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (iter_{input_a} * ld_stride_a);\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (iter_{input_a} * ld_stride_a);\n\n")
 
-                #
-                if reg_padd_y[2] == 0 :
-                    if reg_padd_y[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
-                    else :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[1]}));\n")
-                else :
-                    if reg_padd_y[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[2]}));\n")
-                    else :
-                        tmp_cnt_per_padd_y = reg_padd_y[1] + reg_padd_y[2]
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_y}));\n")
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = sm_{input_a}[{input_a}_offset0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = sm_{input_a}[{input_a}_offset1];\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3) + (ll >> 1);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (iter_{input_a} * ld_stride_a);\n\n")
             
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
         #
         else :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset0 = shm_{input_a}0 + (iter_{input_a} * ld_stride_a);\n")
+                f.write("\t" * tab + f"int {input_a}_offset1 = shm_{input_a}1 + (iter_{input_a} * ld_stride_a);\n\n")
 
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                f.write("\t" * tab + f"{input_a}_frag[0].x[0] = sm_{input_a}[{input_a}_offset0];\n")
+                f.write("\t" * tab + f"{input_a}_frag[1].x[0] = sm_{input_a}[{input_a}_offset1];\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a} + (iter_{input_a} * ld_stride_a);\n\n")
 
-            #
-            if size_internal == 8 :
-                # f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ (ll << 1))];\n\n")
                 f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
-            else :
-                # f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ ll)];\n\n")
-                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset)];\n\n")
 
     #
     if b_double2_flag :
         #
         if SMEM_order_b[2] == ld_tile_order_b[0] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b} += 2)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(right_reg_size))
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + ll_iter_{input_b};\n")
-            
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (ld_stride_b << 3));\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (xor_offset_{input_b} ^ iter_{input_b});\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (xor_offset_{input_b} ^ iter_{input_b});\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (xor_offset_{input_b} ^ iter_{input_b});\n\n")
         #
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             #
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(right_frag_size))
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (({input_b}_fragment_offset ^ (cnt_{input_b} << 1)) << 2);\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (iter_{input_b} * ld_stride_b);\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (iter_{input_b} * ld_stride_b);\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (iter_{input_b} * ld_stride_b);\n\n")
         #
         else :
             f.write("\t" * tab + "#pragma unroll\n")
@@ -584,24 +642,15 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-            
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                cnt_offset = (int)(math.log2(8 * size_internal))
-
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (iter_{input_b} * ld_stride_b);\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (iter_{input_b} * ld_stride_b);\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (iter_{input_b} * ld_stride_b);\n\n")
     #
     else :
         #
-        #f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + "#pragma unroll\n")
         f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
 
@@ -609,64 +658,30 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if SMEM_order_b[2] == ld_tile_order_b[0] :        
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b)+ (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b)+ ll_iter_{input_b};\n")
-
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
-                cnt_offset = (int)(math.log2(8 * size_internal))
-
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (iter_{input_b} * ld_stride_b);\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (iter_{input_b} * ld_stride_b);\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (iter_{input_b} * ld_stride_b);\n\n")
         #
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3) + (ll >> 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-
                 #
-                if reg_padd_x[2] == 0 :
-                    if reg_padd_x[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
-                    else :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[1]}));\n")
-                #
-                else :
-                    if reg_padd_x[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[2]}));\n")
-                    else :
-                        tmp_cnt_per_padd_x = reg_padd_x[1] + reg_padd_x[2]
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_x}));\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (iter_{input_b} * ld_stride_b);\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (iter_{input_b} * ld_stride_b);\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b + (ll << 3) + (ll >> 1);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (iter_{input_b} * ld_stride_b);\n\n")
         #
         else :
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
-                f.write("\t" * tab + "#pragma unroll\n")
-                f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
-                f.write("\t" * tab + "{\n"); tab += 1
-                
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                f.write("\t" * tab + f"int {input_b}_offset0 = shm_{input_b}0 + (iter_{input_b} * ld_stride_b);\n")
+                f.write("\t" * tab + f"int {input_b}_offset1 = shm_{input_b}1 + (iter_{input_b} * ld_stride_b);\n\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b} + (iter_{input_b} * ld_stride_b);\n\n")
 
     #
     if b_double2_flag and (SMEM_order_b[2] == ld_tile_order_b[0]) :
@@ -674,22 +689,51 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
             #
             if left_frag_size == 16 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx2 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx3 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx02 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx03 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx12 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx13 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx20 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx21 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx22 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx23 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx30 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx31 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx32 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx33 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 16 and right_frag_size == 8 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
-                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a};\n")
-                f.write("\t" * tab + f"const int out_idx2 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
-                f.write("\t" * tab + f"const int out_idx3 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx20 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx21 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx30 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx31 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 8 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx2 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx3 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx20 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx21 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx30 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx31 = (((iter_{input_a} + 1) * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 1;\n")
             #
             else :
                 f.write("\t" * tab + f"const int out_idx0 = (iter_{input_a} * wniter) + iter_{input_b};\n")
@@ -699,16 +743,29 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         else :
             #
             if left_frag_size == 16 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx02 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx03 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx12 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx13 = (((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 16 and right_frag_size == 8 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
-                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + cnt_{input_a};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_a}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 8 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = ((iter_{input_a} * wniter) + iter_{input_b} + 1) * {input_b}_frag_cnt + 1;\n")
             #
             else :
                 f.write("\t" * tab + f"const int out_idx0 = (iter_{input_a} * wniter) + iter_{input_b};\n")
@@ -719,16 +776,29 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
             #
             if left_frag_size == 16 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx02 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx03 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx12 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx13 = ((((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 16 and right_frag_size == 8 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
-                f.write("\t" * tab + f"const int out_idx1 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 8 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
-                f.write("\t" * tab + f"const int out_idx1 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx00 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx01 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
+
+                f.write("\t" * tab + f"const int out_idx10 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx11 = (((iter_{input_a} + 1) * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
             #
             else :
                 f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a}) * wniter) + iter_{input_b};\n")
@@ -737,13 +807,18 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         else :
             #
             if left_frag_size == 16 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx0 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx1 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0) * {input_b}_frag_cnt + 1;\n")
+                f.write("\t" * tab + f"const int out_idx2 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx3 = (((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1) * {input_b}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 16 and right_frag_size == 8 :
-                f.write("\t" * tab + f"const int out_idx = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + cnt_{input_a};\n")
+                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_a}_frag_cnt + 1;\n")
             #
             elif left_frag_size == 8 and right_frag_size == 16 :
-                f.write("\t" * tab + f"const int out_idx = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + cnt_{input_b};\n")
+                f.write("\t" * tab + f"const int out_idx0 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 0;\n")
+                f.write("\t" * tab + f"const int out_idx1 = ((iter_{input_a} * wniter) + iter_{input_b}) * {input_b}_frag_cnt + 1;\n")
             #
             else :
                 f.write("\t" * tab + f"const int out_idx = (iter_{input_a} * wniter) + iter_{input_b};\n")
@@ -752,87 +827,457 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
     if b_double2_flag :
         #
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
-            #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"double2 reg_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
-                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = reg_{input_b}.x;\n")
-                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = reg_{input_b}.y;\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset0])[0];\n")
+                    f.write("\t" * tab + f"double2 tmp1_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset1])[0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][1].x[0] = tmp0_{input_b}.y;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][0].x[0] = tmp1_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][1].x[0] = tmp1_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0][0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1][0], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0][0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1][0], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][0], {input_b}_frag[0][1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][0], {input_b}_frag[1][1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][0], {input_b}_frag[0][1], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][0], {input_b}_frag[1][1], t3_frag[out_idx13]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx20], {input_a}_frag[0][1], {input_b}_frag[0][0], t3_frag[out_idx20]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx21], {input_a}_frag[0][1], {input_b}_frag[1][0], t3_frag[out_idx21]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx22], {input_a}_frag[1][1], {input_b}_frag[0][0], t3_frag[out_idx22]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx23], {input_a}_frag[1][1], {input_b}_frag[1][0], t3_frag[out_idx23]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx30], {input_a}_frag[0][1], {input_b}_frag[0][1], t3_frag[out_idx30]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx31], {input_a}_frag[0][1], {input_b}_frag[1][1], t3_frag[out_idx31]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx32], {input_a}_frag[1][1], {input_b}_frag[0][1], t3_frag[out_idx32]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx33], {input_a}_frag[1][1], {input_b}_frag[1][1], t3_frag[out_idx33]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"double2 tmp_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx20], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx20]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx21], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx21]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx30], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx30]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx31], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx31]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset0])[0];\n")
+                    f.write("\t" * tab + f"double2 tmp1_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset1])[0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][1].x[0] = tmp0_{input_b}.y;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][0].x[0] = tmp1_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][1].x[0] = tmp1_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0][0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1][0], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0], {input_b}_frag[0][1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0], {input_b}_frag[1][1], t3_frag[out_idx11]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx20], {input_a}_frag[1], {input_b}_frag[0][0], t3_frag[out_idx20]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx21], {input_a}_frag[1], {input_b}_frag[1][0], t3_frag[out_idx21]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx30], {input_a}_frag[1], {input_b}_frag[0][1], t3_frag[out_idx30]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx31], {input_a}_frag[1], {input_b}_frag[1][1], t3_frag[out_idx31]);\n")
+                else :
+                    f.write("\t" * tab + f"double2 tmp_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx10]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx20], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx20]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx30], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx30]);\n")
+
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag, t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag, t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+
             #
             else :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag, t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag, t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
         #
         else :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"double2 reg_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
-                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = reg_{input_b}.x;\n")
-                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = reg_{input_b}.y;\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset0])[0];\n")
+                    f.write("\t" * tab + f"double2 tmp1_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset1])[0];\n\n")
+
+                    f.write("\t" * tab + f"{input_b}_frag[0][0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][1].x[0] = tmp0_{input_b}.y;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][0].x[0] = tmp1_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][1].x[0] = tmp1_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0][0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1][0], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1], {input_b}_frag[0][0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1], {input_b}_frag[1][0], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0], {input_b}_frag[0][1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0], {input_b}_frag[1][1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1], {input_b}_frag[0][1], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1], {input_b}_frag[1][1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n\n")
+
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp0_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset0])[0];\n")
+                    f.write("\t" * tab + f"double2 tmp1_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset1])[0];\n\n")
+
+                    f.write("\t" * tab + f"{input_b}_frag[0][0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[0][1].x[0] = tmp0_{input_b}.y;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][0].x[0] = tmp1_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1][1].x[0] = tmp1_{input_b}.y;\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag, {input_b}_frag[0][0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag, {input_b}_frag[1][0], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag, {input_b}_frag[0][1], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag, {input_b}_frag[1][1], t3_frag[out_idx11]);\n")
+                else :
+                    f.write("\t" * tab + f"double2 tmp0_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n\n")
+
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp0_{input_b}.x;\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp0_{input_b}.y;\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                elif left_frag_size == 8 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
+
             #
             else :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                elif left_frag_size == 8 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
     #
     else :
         #
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag, t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag, t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1][1], {input_b}_frag, t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag, t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag, t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1][1], {input_b}_frag, t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
             #
             else :
-                #
-                if size_internal == 8 :
-                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + ({input_b}_fragment_offset ^ (ll << 1))];\n")
-                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
-                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
-                #
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0][0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx02], {input_a}_frag[1][0], {input_b}_frag[0], t3_frag[out_idx02]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx03], {input_a}_frag[1][0], {input_b}_frag[1], t3_frag[out_idx03]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[0][1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx12], {input_a}_frag[1][1], {input_b}_frag[0], t3_frag[out_idx12]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx13], {input_a}_frag[1][1], {input_b}_frag[1], t3_frag[out_idx13]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0][0], {input_b}_frag, t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[1][0], {input_b}_frag, t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[0][1], {input_b}_frag, t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1][1], {input_b}_frag, t3_frag[out_idx11]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx00], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx00]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx01], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx01]);\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx10], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx10]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx11], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx11]);\n")
                 else :
-                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + ({input_b}_fragment_offset ^ ll)];\n")
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
                     f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+
                     f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
         #
         else :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
-                f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                else :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
             #
             else :
-                #
-                if size_internal == 8 :
-                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + ({input_b}_fragment_offset ^ (ll << 1))];\n")
-                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
-                #
+                if left_frag_size == 16 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx3], {input_a}_frag[1], {input_b}_frag[1], t3_frag[out_idx3]);\n")
+                elif left_frag_size == 16 and right_frag_size == 8 :
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
+                elif left_frag_size == 8 and right_frag_size == 16 :
+                    f.write("\t" * tab + f"{input_b}_frag[0].x[0] = sm_{input_b}[{input_b}_offset0];\n")
+                    f.write("\t" * tab + f"{input_b}_frag[1].x[0] = sm_{input_b}[{input_b}_offset1];\n\n")
+
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
+                    f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
                 else :
-                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + ({input_b}_fragment_offset ^ ll)];\n")
+                    f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n\n")
                     f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
     
     #

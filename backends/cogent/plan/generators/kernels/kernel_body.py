@@ -323,11 +323,11 @@ def tc_code_kernel_initial(f, l_external_index, l_indices_size, l_splited_indice
         f.write(f"\t// Frag_mapped : {frag}, Reg_mapped : {reg} / Internal : {internal}\n")
 
     #
-    if opt % 2 == 0 :
-        # f.write("\tint internal_upperbound = 0;\n")
-        # f.write("\tint internal_offset;\n")
-        if len(internal_order) > 1 :
-            f.write("\tint iter_" + internal_order[0] + "_offset = 0;\n")
+    # if opt % 2 == 0 :
+    #     # f.write("\tint internal_upperbound = 0;\n")
+    #     # f.write("\tint internal_offset;\n")
+    #     if len(internal_order) > 1 :
+    #         f.write("\tint iter_" + internal_order[0] + "_offset = 0;\n")
     
     #
     reg_partial_index = []
@@ -853,7 +853,7 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                     scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], g_m_iter, m_base, g_n_iter, n_base, rng_{reg_partial_a}, rng_{frag_partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
             
             #
-            full_condition.append("(((uintptr_t)dst & 0x1F) == 0)")
+            full_condition.append("(((uintptr_t)(&dev_t3[dst]) & 0x1F) == 0)")
             full_condition.append("((intra_stride & 1) == 0)")
             str_full_condition = " && ".join(full_condition)
             str_scatter_store = " ".join(scatter_store)
@@ -1045,7 +1045,7 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                     scatter_store.append("scatter_store_tail2(&dev_t3[dst], frag_valid_rows, frag_valid_cols, intra_stride, t3_frag[frag_idx]);\n")
             
             #
-            full_condition.append("(((uintptr_t)dst & 0x7) == 0)")
+            full_condition.append("(((uintptr_t)(&dev_t3[dst]) & 0x7) == 0)")
             full_condition.append("((intra_stride & 0x1) == 0)")
             str_full_condition = " && ".join(full_condition)
             str_scatter_store = " ".join(scatter_store)

@@ -4,10 +4,12 @@ add_executable(bench_tccg
     tccg_verify.cpp
 )
 
-target_link_libraries(bench_tccg PRIVATE tcont)
+target_link_libraries(bench_tccg PRIVATE tcont cogent ttgt_cutt CUDA::cublas)
 
 target_include_directories(bench_tccg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/backends/cogent/include
+    ${CMAKE_SOURCE_DIR}/backends/ttgt_cutt/include
 )
 
 find_package(OpenMP)

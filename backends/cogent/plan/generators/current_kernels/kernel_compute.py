@@ -263,48 +263,6 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         
     f.write("\n")
 
-    tab = 1
-    if a_double2_flag :
-        if SMEM_order_a[2] == ld_tile_order_a[0] :
-            f.write("\t" * tab + f"const int xor_offset_{input_a} = (wrow ^ {input_a}_fragment_offset);\n")
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + {input_a}_lane_offset;\n")
-        elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
-            else :
-                f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + ({input_a}_fragment_offset << 2) + {input_a}_lane_offset;\n")
-        elif SMEM_order_a[2] == ld_tile_order_a[2] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_lane_offset;\n")
-    else :
-        if SMEM_order_a[2] == ld_tile_order_a[0] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
-        elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a) + {input_a}_fragment_offset;\n")
-        else :
-            f.write("\t" * tab + f"const int tmp_{input_a} = shm_{input_a}_offset + (wrow * ld_stride_a);\n")
-
-    #
-    if b_double2_flag :
-        if SMEM_order_b[2] == ld_tile_order_b[0] :
-            f.write("\t" * tab + f"const int xor_offset_{input_b} = (wcol ^ {input_b}_fragment_offset);\n")
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + {input_b}_lane_offset;\n")
-        elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            if right_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
-            else :
-                f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + ({input_b}_fragment_offset << 2) + {input_b}_lane_offset;\n")
-        else :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_lane_offset;\n")
-    else :
-        if SMEM_order_b[2] == ld_tile_order_b[0] :        
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
-        elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b) + {input_b}_fragment_offset;\n")
-        else :
-            f.write("\t" * tab + f"const int tmp_{input_b} = shm_{input_b}_offset + (wcol * ld_stride_b);\n")
-
-    f.write("\n")
-
     #
     if opt % 2 == 0 :
         f.write("\tfor(int ll = 0; ll < TILE_UNIT - internal_upperbound; ll += 4)\n")
@@ -315,146 +273,77 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
     tab = 1
     f.write("\t" * tab + "{\n"); tab += 1
 
-    if a_double2_flag :
-        #
-        if SMEM_order_a[2] == ld_tile_order_a[0] :
-            ll_offset = (int)(math.log2(left_reg_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = ll << {ll_offset};\n")
-        #
-        elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            ll_offset = (int)(math.log2(left_frag_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = ll << {ll_offset};\n")
-        #
-        else :
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-    #
-    else :
-        #
-        if SMEM_order_a[2] == ld_tile_order_a[0] :
-            f.write("\t" * tab + f"const int ll_iter_{input_a} = (ll << 3);\n")
-        #
-        elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            #
-            if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = ((ll << 3) + (ll >> 2));\n")
-            #
-            else :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = ((ll << 3) + (ll >> 1));\n")
-        #
-        else :
-            #
-            if size_internal == 8 :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ (ll << 1)) + (ll << 3));\n")
-            else :
-                f.write("\t" * tab + f"const int ll_iter_{input_a} = (({input_a}_fragment_offset ^ ll) + (ll << 3));\n")
-
-    #
-    if b_double2_flag :
-        #
-        if SMEM_order_b[2] == ld_tile_order_b[0] :
-            ll_offset = (int)(math.log2(right_reg_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << {ll_offset});\n")
-        #
-        elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            ll_offset = (int)(math.log2(right_frag_size))
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << {ll_offset});\n")
-        #
-        else :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-    #
-    else :
-        #
-        if SMEM_order_b[2] == ld_tile_order_b[0] :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3);\n")
-        #
-        elif SMEM_order_b[2] == ld_tile_order_b[1] :
-            #
-            if right_frag_size == 16 :
-                f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3) + (ll >> 2);\n")
-            #
-            else :
-                f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3) + (ll >> 1);\n")
-        #
-        else :
-            f.write("\t" * tab + f"const int ll_iter_{input_b} = (ll << 3);\n")
-
     #
     if a_double2_flag :
         #
         if SMEM_order_a[2] == ld_tile_order_a[0] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a} += 2)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(left_reg_size))
-
+            
             #
             if left_frag_size == 16 :
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a});\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (ld_stride_a << 3)) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (ld_stride_a << 3)) + ll_iter_{input_a};\n")
+                ll_offset = (int)(math.log2(left_reg_size))
+
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow ^ {input_a}_fragment_offset) ^ iter_{input_a}) + (cnt_{input_a} * (ld_stride_a << 3)) + {input_a}_lane_offset + (ll << {ll_offset});\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (xor_offset_{input_a} ^ iter_{input_a}) + ll_iter_{input_a};\n")
+                ll_offset = (int)(math.log2(left_reg_size))
+                
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow ^ {input_a}_fragment_offset) ^ iter_{input_a}) + {input_a}_lane_offset + (ll << {ll_offset});\n")
 
-            f.write("\t" * tab + f"double2 reg_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset])[0];\n")
-            f.write("\t" * tab + f"{input_a}_frag[0].x[0] = reg_{input_a}.x;\n")
-            f.write("\t" * tab + f"{input_a}_frag[1].x[0] = reg_{input_a}.y;\n\n")
+            f.write("\t" * tab + f"double2 tmp_{input_a} = reinterpret_cast<double2*>(&sm_{input_a}[{input_a}_offset])[0];\n")
+            f.write("\t" * tab + f"{input_a}_frag[0].x[0] = tmp_{input_a}.x;\n")
+            f.write("\t" * tab + f"{input_a}_frag[1].x[0] = tmp_{input_a}.y;\n\n")
         #
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(left_frag_size))
 
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (({input_a}_fragment_offset ^ (cnt_{input_a} << 1)) << 2);\n")
+                ll_offset = (int)(math.log2(left_frag_size))
+
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow + iter_{input_a}) * ld_stride_a) + (({input_a}_fragment_offset ^ (cnt_{input_a} << 1)) << 2) + {input_a}_lane_offset + (ll << {ll_offset});\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                ll_offset = (int)(math.log2(left_frag_size))
+
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow + iter_{input_a}) * ld_stride_a) + ({input_a}_fragment_offset << 2) + {input_a}_lane_offset + (ll << {ll_offset});\n")
 
             f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
         #
         else :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
 
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
                 cnt_offset = (int)(math.log2(8 * size_internal))
 
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow + iter_{input_a}) * ld_stride_a) + (cnt_{input_a} << {cnt_offset}) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2) + {input_a}_lane_offset;\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + ((wrow + iter_{input_a}) * ld_stride_a) + (({input_a}_fragment_offset ^ (ll >> 2)) << 2) + {input_a}_lane_offset;\n")
 
             f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
     #
     else :
-        #f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + "#pragma unroll\n")
         f.write("\t" * tab + f"for(int iter_{input_a} = 0; iter_{input_a} < wmiter; iter_{input_a}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
 
@@ -462,29 +351,22 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if SMEM_order_a[2] == ld_tile_order_a[0] :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
                 cnt_offset = (int)(math.log2(8 * size_internal))
 
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + (cnt_{input_a} << {cnt_offset}) + (ll << 3);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + (ll << 3);\n")
 
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + {input_a}_fragment_offset];\n\n")
         #
         elif SMEM_order_a[2] == ld_tile_order_a[1] :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3) + (ll >> 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-                    
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
@@ -492,90 +374,81 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
                 #
                 if reg_padd_y[2] == 0 :
                     if reg_padd_y[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                        f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3) + (ll << 3) + (ll >> 2);\n")
                     else :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[1]}));\n")
+                        f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[1]}) + (ll << 3) + (ll >> 2);\n")
                 else :
                     if reg_padd_y[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[2]}));\n")
+                        f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_y[2]}) + (ll << 3) + (ll >> 2);\n")
                     else :
                         tmp_cnt_per_padd_y = reg_padd_y[1] + reg_padd_y[2]
-                        f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_y}));\n")
+                        f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + cnt_{input_a} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_y}) + (ll << 3) + (ll >> 2);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3) + (ll >> 1);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + (ll << 3) + (ll >> 1);\n")
             
-            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+            f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + {input_a}_fragment_offset];\n\n")
         #
         else :
             #
             if left_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_a}1 = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_a} = 0; cnt_{input_a} < {input_a}_frag_cnt; cnt_{input_a}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a}1 + (cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + cnt_{input_a} * (TILE_{ld_tile_order_a[2].capitalize()} << 3) + (ll << 3);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_a}_offset = tmp_{input_a} + (iter_{input_a} * ld_stride_a) + ll_iter_{input_a};\n")
+                f.write("\t" * tab + f"int {input_a}_offset = shm_{input_a}_offset + (wrow + iter_{input_a}) * ld_stride_a + (ll << 3);\n")
 
             #
             if size_internal == 8 :
-                # f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ (ll << 1))];\n\n")
-                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ (ll << 1))];\n\n")
             else :
-                # f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ ll)];\n\n")
-                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset)];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ ll)];\n\n")
 
     #
     if b_double2_flag :
         #
         if SMEM_order_b[2] == ld_tile_order_b[0] :
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b} += 2)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(right_reg_size))
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + ll_iter_{input_b};\n")
-            
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (ld_stride_b << 3));\n")
+                ll_offset = (int)(math.log2(right_reg_size))
+
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol ^ {input_b}_fragment_offset) ^ iter_{input_b}) + (cnt_{input_b} * (ld_stride_b << 3)) + {input_b}_lane_offset + (ll << {ll_offset});\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (xor_offset_{input_b} ^ iter_{input_b}) + ll_iter_{input_b};\n")
+                ll_offset = (int)(math.log2(right_reg_size))
+                
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol ^ {input_b}_fragment_offset) ^ iter_{input_b}) + {input_b}_lane_offset + (ll << {ll_offset});\n")
         #
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             #
-            #f.write("\t" * tab + "#pragma unroll\n")
+            f.write("\t" * tab + "#pragma unroll\n")
             f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
             f.write("\t" * tab + "{\n"); tab += 1
-            ll_offset = (int)(math.log2(right_frag_size))
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (({input_b}_fragment_offset ^ (cnt_{input_b} << 1)) << 2);\n")
+                ll_offset = (int)(math.log2(right_frag_size))
+
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol + iter_{input_b}) * ld_stride_b) + (({input_b}_fragment_offset ^ (cnt_{input_b} << 1)) << 2) + {input_b}_lane_offset + (ll << {ll_offset});\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << {ll_offset});\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                ll_offset = (int)(math.log2(right_frag_size))
+
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol + iter_{input_b}) * ld_stride_b) + ({input_b}_fragment_offset << 2) + {input_b}_lane_offset + (ll << {ll_offset});\n")
         #
         else :
             f.write("\t" * tab + "#pragma unroll\n")
@@ -584,24 +457,20 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
 
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-            
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
                 cnt_offset = (int)(math.log2(8 * size_internal))
 
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol + iter_{input_b}) * ld_stride_b) + (cnt_{input_b} << {cnt_offset}) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2) + {input_b}_lane_offset;\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + ((wcol + iter_{input_b}) * ld_stride_b) + (({input_b}_fragment_offset ^ (ll >> 2)) << 2) + {input_b}_lane_offset;\n")
     #
     else :
         #
-        #f.write("\t" * tab + "#pragma unroll\n")
+        f.write("\t" * tab + "#pragma unroll\n")
         f.write("\t" * tab + f"for(int iter_{input_b} = 0; iter_{input_b} < wniter; iter_{input_b}++)\n")
         f.write("\t" * tab + "{\n"); tab += 1
 
@@ -609,27 +478,20 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if SMEM_order_b[2] == ld_tile_order_b[0] :        
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b)+ (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b)+ ll_iter_{input_b};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
 
                 cnt_offset = (int)(math.log2(8 * size_internal))
 
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} << {cnt_offset});\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + (cnt_{input_b} << {cnt_offset}) + (ll << 3);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + (ll << 3);\n")
         #
         elif SMEM_order_b[2] == ld_tile_order_b[1] :
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3) + (ll >> 2);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
@@ -637,36 +499,31 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
                 #
                 if reg_padd_x[2] == 0 :
                     if reg_padd_x[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                        f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3) + (ll << 3) + (ll >> 2);\n")
                     else :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[1]}));\n")
+                        f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[1]}) + (ll << 3) + (ll >> 2);\n")
                 #
                 else :
                     if reg_padd_x[1] == 0 :
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[2]}));\n")
+                        f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {reg_padd_x[2]}) + (ll << 3) + (ll >> 2);\n")
                     else :
                         tmp_cnt_per_padd_x = reg_padd_x[1] + reg_padd_x[2]
-                        f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_x}));\n")
+                        f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + cnt_{input_b} * ((TILE_{ld_tile_order_a[2].capitalize()} << 3) + {tmp_cnt_per_padd_x}) + (ll << 3) + (ll >> 2);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b + (ll << 3) + (ll >> 1);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + (ll << 3) + (ll >> 1);\n")
         #
         else :
             #
             if right_frag_size == 16 :
-                # f.write("\t" * tab + f"int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int tmp_{input_b}1 = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
-
                 f.write("\t" * tab + "#pragma unroll\n")
                 f.write("\t" * tab + f"for(int cnt_{input_b} = 0; cnt_{input_b} < {input_b}_frag_cnt; cnt_{input_b}++)\n")
                 f.write("\t" * tab + "{\n"); tab += 1
                 
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b}1 + (cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3));\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + cnt_{input_b} * (TILE_{ld_tile_order_a[2].capitalize()} << 3) + (ll << 3);\n")
             #
             else :
-                # f.write("\t" * tab + f"int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + (ll << 3);\n")
-                f.write("\t" * tab + f"const int {input_b}_offset = tmp_{input_b} + (iter_{input_b} * ld_stride_b) + ll_iter_{input_b};\n")
+                f.write("\t" * tab + f"int {input_b}_offset = shm_{input_b}_offset + (wcol + iter_{input_b}) * ld_stride_b + (ll << 3);\n")
 
     #
     if b_double2_flag and (SMEM_order_b[2] == ld_tile_order_b[0]) :
@@ -754,9 +611,9 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"double2 reg_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
-                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = reg_{input_b}.x;\n")
-                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = reg_{input_b}.y;\n")
+                f.write("\t" * tab + f"double2 tmp_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
+                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp_{input_b}.x;\n")
+                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp_{input_b}.y;\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag[0], t3_frag[out_idx0]);\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[0], {input_b}_frag[1], t3_frag[out_idx1]);\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx2], {input_a}_frag[1], {input_b}_frag[0], t3_frag[out_idx2]);\n")
@@ -775,9 +632,9 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         else :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"double2 reg_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
-                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = reg_{input_b}.x;\n")
-                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = reg_{input_b}.y;\n")
+                f.write("\t" * tab + f"double2 tmp_{input_b} = reinterpret_cast<double2*>(&sm_{input_b}[{input_b}_offset])[0];\n")
+                f.write("\t" * tab + f"{input_b}_frag[0].x[0] = tmp_{input_b}.x;\n")
+                f.write("\t" * tab + f"{input_b}_frag[1].x[0] = tmp_{input_b}.y;\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag, {input_b}_frag[0], t3_frag[out_idx0]);\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag, {input_b}_frag[1], t3_frag[out_idx1]);\n")
             #
@@ -794,12 +651,12 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         if a_double2_flag and (SMEM_order_a[2] == ld_tile_order_a[0]) :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
+                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + {input_b}_fragment_offset];\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
+                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + {input_b}_fragment_offset];\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx0], {input_a}_frag[0], {input_b}_frag, t3_frag[out_idx0]);\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx1], {input_a}_frag[1], {input_b}_frag, t3_frag[out_idx1]);\n")
             #
@@ -818,11 +675,11 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
         else :
             #
             if SMEM_order_b[2] == ld_tile_order_b[0] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
+                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + {input_b}_fragment_offset];\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
             #
             elif SMEM_order_b[2] == ld_tile_order_b[1] :
-                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset];\n")
+                f.write("\t" * tab + f"{input_b}_frag.x[0] = sm_{input_b}[{input_b}_offset + {input_b}_fragment_offset];\n")
                 f.write("\t" * tab + f"nvcuda::wmma::mma_sync(t3_frag[out_idx], {input_a}_frag, {input_b}_frag, t3_frag[out_idx]);\n")
             #
             else :

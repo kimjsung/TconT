@@ -144,7 +144,8 @@ The benchmark uses the following execution flow:
 
 1. `TconT::plan(desc)`
 2. `TconT::prepare(plan)`
-3. `TconT::benchmark(run, desc, options)`
+3. warm-up launches in `main`
+4. repeated timed launches in `main`
 
 The benchmark path performs:
 
@@ -343,14 +344,13 @@ The execution flow is intentionally split into three layers:
 
 1. `plan`
 2. `prepare`
-3. `launch` / `benchmark`
+3. `launch`
 
 In practice:
 
 - `TconT::plan(...)` creates an `ExecutionPlan`
 - `TconT::prepare(...)` creates an `ExecutionRun`
 - `TconT::launch(...)` launches exactly one run
-- `TconT::benchmark(...)` performs warm-up and repeated timed launches
 
 This means a backend can:
 

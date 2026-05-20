@@ -10,6 +10,7 @@ from pathlib import Path
 
 RESULT_PATTERN = re.compile(
     r"^TCCG_RESULT equation=(?P<equation>\d+) precision=(?P<precision>\w+) "
+    r"backend=(?P<backend>\w+) "
     r"operations=(?P<operations>\d+) time_ms=(?P<time_ms>[0-9.]+) "
     r"gflops=(?P<gflops>[0-9.]+) validation=(?P<validation>\w+)$")
 
@@ -56,7 +57,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_benchmark(binary: Path, equation: int, precision: str, backend: str, verify: bool) -> dict:
-    cmd = [str(binary), "-b", str(equation), f"--{precision}", "--backend", backend]
+    cmd = [
+        str(binary),
+        "-b",
+        str(equation),
+        f"--{precision}",
+        "--backend",
+        backend,
+    ]
     if verify:
         cmd.append("--verify")
 
@@ -82,7 +90,7 @@ def run_benchmark(binary: Path, equation: int, precision: str, backend: str, ver
             return {
                 "equation": int(match.group("equation")),
                 "precision": match.group("precision"),
-                "backend": backend,
+                "backend": match.group("backend"),
                 "operation_count": int(match.group("operations")),
                 "time_ms": float(match.group("time_ms")),
                 "gflops": float(match.group("gflops")),

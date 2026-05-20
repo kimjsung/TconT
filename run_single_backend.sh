@@ -66,7 +66,7 @@ CMAKE_BUILD_DIR="${CMAKE_BUILD_DIR:-${REPO_ROOT}/build}"
 CMAKE_TARGET="${CMAKE_TARGET:-bench_tccg}"
 CMAKE_CONFIGURE_ARGS="${CMAKE_CONFIGURE_ARGS:-}"
 CMAKE_BUILD_ARGS="${CMAKE_BUILD_ARGS:--j8}"
-COGENT_CUBIN_COMPILE_OPT="${COGENT_CUBIN_COMPILE_OPT:-DEFAULT}"
+COGENT_CUBIN_COMPILE_OPT="${COGENT_CUBIN_COMPILE_OPT:-A100}"
 BINARY_PATH="${BINARY_PATH:-${CMAKE_BUILD_DIR}/benchmarks/tccg/bench_tccg}"
 START_EQ="${START_EQ:-1}"
 END_EQ="${END_EQ:-48}"
@@ -131,6 +131,8 @@ echo "[Slurm] Host         : $(hostname)"
 echo "[Slurm] Job ID       : ${SLURM_JOB_ID:-local}"
 
 cd "${REPO_ROOT}"
+
+rm -rf "${CMAKE_BUILD_DIR}"
 
 echo "[Slurm] Configuring CMake project"
 cmake -S "${REPO_ROOT}" -B "${CMAKE_BUILD_DIR}" \
