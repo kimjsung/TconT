@@ -93,6 +93,15 @@ namespace TconT
         int repeats = 10;
     };
 
+    struct ExecutionStageTimes {
+        bool available = false;
+        float total_ms = 0.0f;
+        float transpose_a_ms = 0.0f;
+        float transpose_b_ms = 0.0f;
+        float gemm_ms = 0.0f;
+        float transpose_c_ms = 0.0f;
+    };
+
     struct RunImpl;
 
     struct PlanImpl {
@@ -105,9 +114,12 @@ namespace TconT
         virtual ~RunImpl() = default;
         virtual Backend backend() const = 0;
         virtual void launch() = 0;
+        virtual bool warmup(int iterations) { (void)iterations; return false; }
+        virtual void zero_output() {}
         virtual const void* input_left_host_data() const = 0;
         virtual const void* input_right_host_data() const = 0;
         virtual void copy_output_to_host(void* destination, size_t bytes) const = 0;
+        virtual ExecutionStageTimes stage_times() const { return {}; }
     };
 
     struct ExecutionPlan {
@@ -129,6 +141,9 @@ namespace TconT
     ExecutionPlan plan(const TCEquation& desc);
     ExecutionRun prepare(const ExecutionPlan& plan);
     void launch(const ExecutionRun& run);
+    void warmup(const ExecutionRun& run, int iterations);
+    void zero_output(const ExecutionRun& run);
+    ExecutionStageTimes stage_times(const ExecutionRun& run);
     const void* input_left_host_data(const ExecutionRun& run);
     const void* input_right_host_data(const ExecutionRun& run);
     void copy_output_to_host(const ExecutionRun& run, void* destination, size_t bytes);

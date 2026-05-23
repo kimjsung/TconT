@@ -414,7 +414,8 @@ def make_launch_config(l_kernal_binary, kernel_bin, l_external_index, l_internal
                 kernel_num = 3
             else :
                 kernel_num = 4
-
+    import sys
+    print(f"kernel_num : {kernel_num}", file=sys.stderr)
     #
     smem_x = 1
     smem_y = 1

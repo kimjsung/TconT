@@ -1,5 +1,3 @@
-#pragma once
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -216,13 +214,19 @@ struct ttgt_cuTT_handle {
 };
 
 struct ttgt_cuTT_runtime {
-    cublasHandle_t cublas_handle = nullptr;
+    cublasHandle_t cublas_handle      = nullptr;
+    void*          cublas_workspace   = nullptr;
+    size_t         cublas_workspace_size = 0;
     cuttHandle cutt_handle_A = 0;
     cuttHandle cutt_handle_B = 0;
     cuttHandle cutt_handle_C = 0;
     bool has_cutt_handle_A = false;
     bool has_cutt_handle_B = false;
     bool has_cutt_handle_C = false;
+    void* exec_A = nullptr;
+    void* exec_A_trans = nullptr;
+    void* exec_B = nullptr;
+    void* exec_B_trans = nullptr;
 };
 
 
@@ -235,21 +239,18 @@ void ttgt_cuTT_plan(ttgt_cuTT_handle& plan,
     const std::vector<char>& modeA, 
     const std::vector<char>& modeB, 
     const std::unordered_map<char, int64_t>& extent, 
-    unsigned int target_config = 0);
+    int target_config = -1);
 
 template <typename T>
-void ttgt_cuTT_prepare(
-    const ttgt_cuTT_handle& plan,
+void ttgt_cuTT_prepare(const ttgt_cuTT_handle& plan,
     ttgt_cuTT_runtime& runtime,
     T* d_A, T* d_A_trans,
     T* d_B, T* d_B_trans,
     T* d_C, T* d_C_trans);
 
 template <typename T>
-void ttgt_cuTT_execute(const ttgt_cuTT_handle& plan, 
+void ttgt_cuTT_execute(const ttgt_cuTT_handle& plan,
     ttgt_cuTT_runtime& runtime,
-    T* d_A, T* d_A_trans, 
-    T* d_B, T* d_B_trans, 
     T*& d_C, T* d_C_trans);
 
 void ttgt_cuTT_plan_destroy(ttgt_cuTT_handle& plan);

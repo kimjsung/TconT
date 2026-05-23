@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include <cuda_runtime.h>
+
 #include "tcont.hpp"
 #include "tccg_cases.hpp"
 #include "tccg_utils.hpp"
@@ -145,10 +147,8 @@ int main(int argc, char* argv[])
         const TconT::ExecutionPlan plan = TconT::plan(desc);
         const TconT::ExecutionRun run = TconT::prepare(plan);
 
-        for (int i = 0; i < cli.warmup; ++i) {
-            TconT::launch(run);
-        }
-        TconT::check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize(warmup)");
+        TconT::warmup(run, cli.warmup);
+        TconT::zero_output(run);
 
         std::ofstream csv_file;
         if (!cli.output_path.empty()) {
@@ -156,7 +156,7 @@ int main(int argc, char* argv[])
             if (!csv_file) {
                 throw std::runtime_error("Failed to open output file: " + cli.output_path);
             }
-            csv_file << "iteration,time_ms,gflops\n";
+            csv_file << "iteration,time_ms,gflops,stage_total_ms,transpose_a_ms,transpose_b_ms,gemm_ms,transpose_c_ms\n";
         }
 
         cudaEvent_t start = nullptr;
@@ -177,11 +177,29 @@ int main(int argc, char* argv[])
                 float elapsed_ms = 0.0f;
                 TconT::check_cuda(cudaEventElapsedTime(&elapsed_ms, start, stop), "cudaEventElapsedTime");
                 iteration_ms.push_back(elapsed_ms);
+                const TconT::ExecutionStageTimes stage_times = TconT::stage_times(run);
 
                 const double iteration_gflops = TconT::compute_gflops(plan.equation, elapsed_ms);
-                std::printf("ITERATION %04d time_ms=%.6f gflops=%.6f\n", iter, elapsed_ms, iteration_gflops);
+                std::printf(
+                    "ITERATION %04d time_ms=%.6f gflops=%.6f stage_total_ms=%.6f transpose_a_ms=%.6f transpose_b_ms=%.6f gemm_ms=%.6f transpose_c_ms=%.6f\n",
+                    iter,
+                    elapsed_ms,
+                    iteration_gflops,
+                    stage_times.total_ms,
+                    stage_times.transpose_a_ms,
+                    stage_times.transpose_b_ms,
+                    stage_times.gemm_ms,
+                    stage_times.transpose_c_ms);
                 if (csv_file) {
-                    csv_file << iter << ',' << elapsed_ms << ',' << iteration_gflops << '\n';
+                    csv_file << iter
+                             << ',' << elapsed_ms
+                             << ',' << iteration_gflops
+                             << ',' << stage_times.total_ms
+                             << ',' << stage_times.transpose_a_ms
+                             << ',' << stage_times.transpose_b_ms
+                             << ',' << stage_times.gemm_ms
+                             << ',' << stage_times.transpose_c_ms
+                             << '\n';
                 }
             }
         } catch (...) {

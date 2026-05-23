@@ -108,6 +108,38 @@ namespace TconT
         run.impl->launch();
     }
 
+    void warmup(const ExecutionRun& run, int iterations) {
+        if (!run.impl) {
+            throw std::invalid_argument("ExecutionRun is empty");
+        }
+        if (iterations <= 0) {
+            return;
+        }
+        if (run.impl->warmup(iterations)) {
+            return;
+        }
+        for (int i = 0; i < iterations; ++i) {
+            run.impl->launch();
+        }
+        check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize(warmup)");
+    }
+
+    void zero_output(const ExecutionRun& run) {
+        if (!run.impl) {
+            throw std::invalid_argument("ExecutionRun is empty");
+        }
+
+        run.impl->zero_output();
+    }
+
+    ExecutionStageTimes stage_times(const ExecutionRun& run) {
+        if (!run.impl) {
+            throw std::invalid_argument("ExecutionRun is empty");
+        }
+
+        return run.impl->stage_times();
+    }
+
     const void* input_left_host_data(const ExecutionRun& run) {
         if (!run.impl) {
             throw std::invalid_argument("ExecutionRun is empty");

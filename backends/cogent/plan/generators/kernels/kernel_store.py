@@ -1,5 +1,7 @@
+import tc_helper
+
 #
-def tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type, kernel_num=0) :
+def tc_code_kernel_dev_scatter_store_head(f, l_splited_indices_size, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type, kernel_num=0) :
     #
     if opt == 0 :
         partial_a = collapsed_a[0]
@@ -10,13 +12,17 @@ def tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_ti
         frag_partial_b = ld_tile_order_b[1]
     elif opt == 2 :
         partial_b = collapsed_b[0]
-        reg_partial_a = ld_tile_order_b[0]
+        reg_partial_a = ld_tile_order_a[0]
         frag_partial_a = ld_tile_order_a[1]
     else :
         reg_partial_a = ld_tile_order_a[0]
         reg_partial_b = ld_tile_order_b[0]
         frag_partial_a = ld_tile_order_a[1]
         frag_partial_b = ld_tile_order_b[1]
+
+    #
+    left_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_a[1])
+    right_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_b[1])
 
     #
     arguments = []
@@ -33,29 +39,51 @@ def tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_ti
 
     #
     if opt == 0 :
-        arguments.append("int m_base, int n_base")
+        # if left_frag_size == 16 :
+        arguments.append("int m_base")
+        # if right_frag_size == 16 :
+        arguments.append("int n_base")
         arguments.append(f"int rng_{partial_a}, int rng_{partial_b}")
     elif opt == 1 :
         #
         if kernel_num == 0 :
+            # if left_frag_size == 16 :
             arguments.append("int m_base, int g_n_iter")
+            # else :
+            #     arguments.append("int g_n_iter")
             arguments.append(f"int rng_{partial_a}, int rng_{reg_partial_b}")
         elif kernel_num == 1 :
-            arguments.append("int m_base, int n_base")
+            # if left_frag_size == 16 :
+            arguments.append("int m_base")
+            if right_frag_size == 16 :
+                arguments.append("int n_base")
             arguments.append(f"int rng_{partial_a}, int rng_{frag_partial_b}")
         else :
-            arguments.append("int m_base, int g_n_iter, int n_base")
+            # if left_frag_size == 16 :
+            arguments.append("int m_base")
+            arguments.append("int g_n_iter")
+            if right_frag_size == 16 :
+                arguments.append("int n_base")
             arguments.append(f"int rng_{partial_a}, int rng_{reg_partial_b}, int rng_{frag_partial_b}")
     elif opt == 2 :
         #
         if kernel_num == 0 :
-            arguments.append("int g_m_iter, int n_base")
+            arguments.append("int g_m_iter")
+            # if right_frag_size == 16 :
+            arguments.append("int n_base")
             arguments.append(f"int rng_{reg_partial_a}, int rng_{partial_b}")
         elif kernel_num == 1 :
-            arguments.append("int m_base, int n_base")
+            if left_frag_size == 16 :
+                arguments.append("int m_base")
+            # if right_frag_size == 16 :
+            arguments.append("int n_base")
             arguments.append(f"int rng_{frag_partial_a}, int rng_{partial_b}")
         else :
-            arguments.append("int g_m_iter, int m_base, int n_base")
+            arguments.append("int g_m_iter")
+            if left_frag_size == 16 :
+                arguments.append("int m_base")
+            # if right_frag_size == 16 :
+            arguments.append("int n_base")
             arguments.append(f"int rng_{reg_partial_a}, int rng_{frag_partial_a}, int rng_{partial_b}")
     else :
         #
@@ -63,10 +91,18 @@ def tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_ti
             arguments.append("int g_m_iter, int g_n_iter")
             arguments.append(f"int rng_{reg_partial_a}, int rng_{reg_partial_b}")
         elif kernel_num == 1 :
-            arguments.append("int m_base, int n_base")
+            if left_frag_size == 16 :
+                arguments.append("int m_base")
+            if right_frag_size == 16 :
+                arguments.append("int n_base")
             arguments.append(f"int rng_{frag_partial_a}, int rng_{frag_partial_b}")
         else :
-            arguments.append("int g_m_iter, int m_base, int g_n_iter, int n_base")
+            arguments.append("int g_m_iter")
+            if left_frag_size == 16 :
+                arguments.append("int m_base")
+            arguments.append("int g_n_iter")
+            if right_frag_size == 16 :
+                arguments.append("int n_base")
             arguments.append(f"int rng_{reg_partial_a}, int rng_{frag_partial_a}, int rng_{reg_partial_b}, int rng_{frag_partial_b}")
     
     #
@@ -83,7 +119,7 @@ def tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_ti
     f.write("{\n")
 
 #
-def tc_code_kernel_dev_scatter_store_body(f, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, kernel_num=0) :
+def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, kernel_num=0) :
     #
     if opt == 0 :
         partial_a = collapsed_a[0]
@@ -94,13 +130,16 @@ def tc_code_kernel_dev_scatter_store_body(f, ld_tile_order_a, ld_tile_order_b, c
         frag_partial_b = ld_tile_order_b[1]
     elif opt == 2 :
         partial_b = collapsed_b[0]
-        reg_partial_a = ld_tile_order_b[0]
+        reg_partial_a = ld_tile_order_a[0]
         frag_partial_a = ld_tile_order_a[1]
     else :
         reg_partial_a = ld_tile_order_a[0]
         reg_partial_b = ld_tile_order_b[0]
         frag_partial_a = ld_tile_order_a[1]
         frag_partial_b = ld_tile_order_b[1]
+    
+    left_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_a[1])
+    right_frag_size = tc_helper.tc_helper_find_value(l_splited_indices_size, ld_tile_order_b[1])
     
     #
     f.write("\tconst int lane = threadIdx.x & 31;\n")
@@ -116,45 +155,93 @@ def tc_code_kernel_dev_scatter_store_body(f, ld_tile_order_a, ld_tile_order_b, c
     #
     partial_condition = []
     if opt == 0 :
+        # if left_frag_size == 16 :
         partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
+        # else :
+        #     partial_condition.append(f"(id_m) < rng_{partial_a}")
+        # if right_frag_size == 16 :
         partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
+        # else :
+        #     partial_condition.append(f"(id_n) < rng_{partial_b}")
     elif opt == 1 :
         #
         if kernel_num == 0 :
+            # if left_frag_size == 16 :
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
+            # else :
+            #     partial_condition.append(f"(id_m) < rng_{partial_a}")
             partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
         elif kernel_num == 1 :
+            # if left_frag_size == 16 :
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
-            partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            # else :
+            #     partial_condition.append(f"(id_m) < rng_{partial_a}")
+            if right_frag_size == 16 :
+                partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            else :
+                partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
         else :
+            # if left_frag_size == 16 :
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
+            # else :
+            #     partial_condition.append(f"(id_m) < rng_{partial_a}")
             partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
-            partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            if right_frag_size == 16 :
+                partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            else :
+                partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
     elif opt == 2 :
         #
         if kernel_num == 0 :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            # if right_frag_size == 16 :
             partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
+            # else :
+            #     partial_condition.append(f"(id_n) < rng_{partial_b}")
         elif kernel_num == 1 :
-            partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            if left_frag_size == 16 :
+                partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            else :
+                partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
+            # if right_frag_size == 16 :
             partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
+            # else :
+            #     partial_condition.append(f"(id_n) < rng_{partial_b}")
         else :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            # if left_frag_size == 16 :
             partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            # else :
+            #     partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
+            # if right_frag_size == 16 :
             partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
+            # else :
+            #     partial_condition.append(f"(id_n) < rng_{partial_b}")
     else :
         #
         if kernel_num == 0 :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
             partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
         elif kernel_num == 1 :
-            partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
-            partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            if left_frag_size == 16 :
+                partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            else :
+                partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
+            if right_frag_size == 16 :
+                partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            else :
+                partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
         else :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
-            partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            if left_frag_size == 16 :
+                partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            else :
+                partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
             partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
-            partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            if right_frag_size == 16 :
+                partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
+            else :
+                partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
 
     #
     str_partial_condition = " && ".join(partial_condition)
@@ -406,7 +493,7 @@ def tc_code_kernel_dev_scatter_store_body_fp32(f, ld_tile_order_a, ld_tile_order
     f.write("}\n\n")
 
 #
-def tc_code_kernel_dev_scatter_store(f, kernel_name, fvi_flag, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, split_input, data_type) :
+def tc_code_kernel_dev_scatter_store(f, kernel_name, l_splited_indices_size, fvi_flag, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, split_input, data_type) :
     #
     if fvi_flag == 1 :
         a_split_flag = split_input[1]
@@ -429,13 +516,13 @@ def tc_code_kernel_dev_scatter_store(f, kernel_name, fvi_flag, ld_tile_order_a, 
 
         #
         if opt == 0 :
-            tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type)
-            tc_code_kernel_dev_scatter_store_body(f, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt)
+            tc_code_kernel_dev_scatter_store_head(f, l_splited_indices_size, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type)
+            tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt)
         #
         else :
             for i in range(3) :
-                tc_code_kernel_dev_scatter_store_head(f, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type, i)
-                tc_code_kernel_dev_scatter_store_body(f, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, i)
+                tc_code_kernel_dev_scatter_store_head(f, l_splited_indices_size, kernel_name, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, data_type, i)
+                tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_order_a, ld_tile_order_b, collapsed_a, collapsed_b, opt, i)
     else :
         #
         for i in range(3) :

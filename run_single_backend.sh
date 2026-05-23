@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH -o all.out
 #SBATCH -e %x.%j.err
-#SBATCH --time=01:30:00
+#SBATCH --time=00:10:00
 #SBATCH --gres=gpu:1
 #SBATCH --comment etc
 

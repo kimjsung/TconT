@@ -29,6 +29,7 @@ TconT::BackendSelection parse_backend_selection(const char* value)
     }
     throw std::invalid_argument(std::string("Unknown backend: ") + value);
 }
+
 }
 
 int main(int argc, char *argv[])
@@ -118,10 +119,8 @@ int main(int argc, char *argv[])
         const TconT::ExecutionRun run = TconT::prepare(plan);
         const TconT::RunOptions options{100, 200};
 
-        for (int i = 0; i < options.warmup; ++i) {
-            TconT::launch(run);
-        }
-        TconT::check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize(warmup)");
+        TconT::warmup(run, options.warmup);
+        TconT::zero_output(run);
 
         cudaEvent_t start = nullptr;
         cudaEvent_t stop = nullptr;
@@ -161,20 +160,21 @@ int main(int argc, char *argv[])
 
         std::string validation = "SKIP";
         if (verify) {
-            TconT::launch(run);
+            const TconT::ExecutionRun verify_run = TconT::prepare(plan);
+            TconT::launch(verify_run);
             TconT::check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize(verify)");
 
             const size_t output_elements = static_cast<size_t>(compute_tensor_size(desc.modeC, desc.extent));
             const size_t output_bytes = output_elements * TconT::scalar_type_size(desc.scalar_type);
             std::vector<unsigned char> output_storage(output_bytes);
 
-            TconT::copy_output_to_host(run, output_storage.data(), output_bytes);
+            TconT::copy_output_to_host(verify_run, output_storage.data(), output_bytes);
             const VerificationResult verification_result = verify_tccg_case(
                 static_cast<size_t>(target_tccg_benchmark),
                 desc,
                 output_storage.data(),
-                TconT::input_left_host_data(run),
-                TconT::input_right_host_data(run));
+                TconT::input_left_host_data(verify_run),
+                TconT::input_right_host_data(verify_run));
             validation = verification_result.passed ? "PASS" : "FAIL";
         }
 

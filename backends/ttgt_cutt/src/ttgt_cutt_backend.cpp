@@ -25,96 +25,11 @@ void check_cuda_status(cudaError_t status, const char* expr)
     }
 }
 
-bool is_identity_permutation(const std::vector<int>& permutation)
+void check_cublas_status(cublasStatus_t status, const char* expr)
 {
-    for (size_t i = 0; i < permutation.size(); ++i) {
-        if (permutation[i] != static_cast<int>(i)) {
-            return false;
-        }
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        throw std::runtime_error(std::string("cuBLAS error in ") + expr);
     }
-    return true;
-}
-
-void validate_permutation(const std::vector<int>& permutation, size_t expected_rank, const char* label)
-{
-    if (permutation.size() != expected_rank) {
-        throw std::runtime_error(
-            std::string("Invalid TTGT permutation rank for ") + label +
-            ": expected " + std::to_string(expected_rank) +
-            ", got " + std::to_string(permutation.size()));
-    }
-
-    std::vector<int> seen(expected_rank, 0);
-    for (int value : permutation) {
-        if (value < 0 || value >= static_cast<int>(expected_rank)) {
-            throw std::runtime_error(
-                std::string("Invalid TTGT permutation value for ") + label +
-                ": " + std::to_string(value));
-        }
-        if (++seen[static_cast<size_t>(value)] > 1) {
-            throw std::runtime_error(
-                std::string("Duplicated TTGT permutation value for ") + label +
-                ": " + std::to_string(value));
-        }
-    }
-}
-
-void fill_dims_from_modes(
-    std::vector<int>& dims,
-    const std::vector<char>& modes,
-    const std::unordered_map<char, int64_t>& extents)
-{
-    dims.clear();
-    dims.reserve(modes.size());
-    for (char mode : modes) {
-        const auto it = extents.find(mode);
-        if (it == extents.end()) {
-            throw std::invalid_argument(std::string("Missing extent for mode: ") + mode);
-        }
-        dims.push_back(static_cast<int>(it->second));
-    }
-}
-
-std::vector<int> build_transposed_input_dims(
-    const std::vector<char>& output_modes,
-    const std::unordered_map<char, int64_t>& extents,
-    const std::vector<int>& permutation)
-{
-    validate_permutation(permutation, output_modes.size(), "output");
-
-    std::vector<int> dims(output_modes.size(), 0);
-    for (size_t output_idx = 0; output_idx < output_modes.size(); ++output_idx) {
-        const char mode = output_modes[output_idx];
-        const auto it = extents.find(mode);
-        if (it == extents.end()) {
-            throw std::invalid_argument(std::string("Missing extent for mode: ") + mode);
-        }
-        dims[static_cast<size_t>(permutation[output_idx])] = static_cast<int>(it->second);
-    }
-    return dims;
-}
-
-bool is_external_mode(const TconT::TCEquation& desc, char mode)
-{
-    return std::find(desc.modeC.begin(), desc.modeC.end(), mode) != desc.modeC.end();
-}
-
-bool compute_gemm_transpose_for_left(
-    const TconT::TCEquation& desc,
-    const std::vector<char>& input_modes,
-    const std::vector<int>& permutation)
-{
-    validate_permutation(permutation, input_modes.size(), "left input");
-    return !is_external_mode(desc, input_modes[static_cast<size_t>(permutation[0])]);
-}
-
-bool compute_gemm_transpose_for_right(
-    const TconT::TCEquation& desc,
-    const std::vector<char>& input_modes,
-    const std::vector<int>& permutation)
-{
-    validate_permutation(permutation, input_modes.size(), "right input");
-    return is_external_mode(desc, input_modes[static_cast<size_t>(permutation[0])]);
 }
 
 size_t count_elements(
@@ -132,6 +47,12 @@ size_t count_elements(
     return total;
 }
 
+void print_ttgt_plan_debug(const ttgt_cuTT_handle& plan, const TconT::TCEquation& desc)
+{
+    (void)plan;
+    (void)desc;
+}
+
 template <typename ValueType>
 void initialize_input_tensors(ValueType* left, int size_left, ValueType* right, int size_right)
 {
@@ -145,105 +66,9 @@ void initialize_input_tensors(ValueType* left, int size_left, ValueType* right, 
     }
 }
 
-tc build_tc_from_equation(const TconT::TCEquation& desc)
-{
-    tc info{};
-    info.len_output = static_cast<int>(desc.modeC.size());
-    info.len_input_left = static_cast<int>(desc.modeA.size());
-    info.len_input_right = static_cast<int>(desc.modeB.size());
-    info.info_output = static_cast<idx*>(std::calloc(info.len_output, sizeof(idx)));
-    info.info_input_left = static_cast<idx*>(std::calloc(info.len_input_left, sizeof(idx)));
-    info.info_input_right = static_cast<idx*>(std::calloc(info.len_input_right, sizeof(idx)));
-
-    if (info.info_output == nullptr || info.info_input_left == nullptr || info.info_input_right == nullptr) {
-        throw std::bad_alloc();
-    }
-
-    auto fill_tensor = [&](idx* dst, int len, const std::vector<char>& modes, int tensor_type) {
-        int size = 1;
-        for (int i = 0; i < len; ++i) {
-            const char mode = modes[static_cast<size_t>(i)];
-            const auto it = desc.extent.find(mode);
-            if (it == desc.extent.end()) {
-                throw std::invalid_argument(std::string("Missing extent for mode: ") + mode);
-            }
-
-            dst[i].name[0] = mode;
-            dst[i].name[1] = '\0';
-            dst[i].size = static_cast<int>(it->second);
-            dst[i].tile_size = static_cast<int>(it->second);
-            dst[i].idx_type = (std::find(desc.modeC.begin(), desc.modeC.end(), mode) != desc.modeC.end()) ?
-                TYPE_EXTERNAL : TYPE_INTERNAL;
-            size *= dst[i].size;
-        }
-        return size;
-    };
-
-    info.size_output = fill_tensor(info.info_output, info.len_output, desc.modeC, TYPE_TENSOR_C);
-    info.size_input_left = fill_tensor(info.info_input_left, info.len_input_left, desc.modeA, TYPE_TENSOR_A);
-    info.size_input_right = fill_tensor(info.info_input_right, info.len_input_right, desc.modeB, TYPE_TENSOR_B);
-
-    std::vector<char> internal_modes;
-    for (char mode : desc.modeA) {
-        if (std::find(desc.modeC.begin(), desc.modeC.end(), mode) == desc.modeC.end()) {
-            internal_modes.push_back(mode);
-        }
-    }
-
-    info.len_internal_indices = static_cast<int>(internal_modes.size());
-    info.info_internal_indices = static_cast<idx*>(std::calloc(info.len_internal_indices, sizeof(idx)));
-    if (info.info_internal_indices == nullptr && info.len_internal_indices > 0) {
-        throw std::bad_alloc();
-    }
-
-    for (int i = 0; i < info.len_internal_indices; ++i) {
-        const char mode = internal_modes[static_cast<size_t>(i)];
-        const auto it = desc.extent.find(mode);
-        info.info_internal_indices[i].name[0] = mode;
-        info.info_internal_indices[i].name[1] = '\0';
-        info.info_internal_indices[i].size = static_cast<int>(it->second);
-        info.info_internal_indices[i].tile_size = static_cast<int>(it->second);
-        info.info_internal_indices[i].idx_type = TYPE_INTERNAL;
-    }
-
-    info.op = (desc.op == '-') ? 2 : 1;
-    return info;
-}
-
-void destroy_tc(tc& info)
-{
-    std::free(info.info_output);
-    std::free(info.info_input_left);
-    std::free(info.info_input_right);
-    std::free(info.info_internal_indices);
-    info.info_output = nullptr;
-    info.info_input_left = nullptr;
-    info.info_input_right = nullptr;
-    info.info_internal_indices = nullptr;
-}
-
-void destroy_tt(tt* transpose)
-{
-    if (transpose == nullptr) {
-        return;
-    }
-    std::free(transpose->ttlg_dims);
-    std::free(transpose->ttlg_perms);
-    std::free(transpose);
-}
-
-void destroy_tiles(tiles* tile_info)
-{
-    if (tile_info == nullptr) {
-        return;
-    }
-    std::free(tile_info->info_slice);
-    std::free(tile_info);
-}
-
 class TTGTRunImpl final : public TconT::RunImpl {
 public:
-    TTGTRunImpl(std::shared_ptr<const ttgt_cuTT_handle> plan, const TconT::TCEquation& desc)
+    TTGTRunImpl(std::shared_ptr<ttgt_cuTT_handle> plan, const TconT::TCEquation& desc)
         : plan_(std::move(plan))
     {
         if (desc.scalar_type != TconT::ScalarType::Float64) {
@@ -263,7 +88,7 @@ public:
             static_cast<double*>(device_b_trans_raw_),
             static_cast<double*>(device_c_raw_),
             static_cast<double*>(device_c_trans_raw_));
-        device_output_raw_ = plan_->transpose_output ? device_c_raw_ : device_c_trans_raw_;
+        device_output_raw_ = device_c_raw_;
     }
 
     ~TTGTRunImpl() override
@@ -285,13 +110,66 @@ public:
         ttgt_cuTT_execute(
             *plan_,
             runtime_,
-            static_cast<double*>(device_a_raw_),
-            static_cast<double*>(device_a_trans_raw_),
-            static_cast<double*>(device_b_raw_),
-            static_cast<double*>(device_b_trans_raw_),
             output_ptr,
             static_cast<double*>(device_c_trans_raw_));
         device_output_raw_ = output_ptr;
+    }
+
+    bool warmup(int iterations) override
+    {
+        if (iterations <= 0) {
+            return true;
+        }
+
+        double* gemm_a = plan_->transpose_input_left
+            ? static_cast<double*>(runtime_.exec_A_trans)
+            : static_cast<double*>(runtime_.exec_A);
+        double* gemm_b = plan_->transpose_input_right
+            ? static_cast<double*>(runtime_.exec_B_trans)
+            : static_cast<double*>(runtime_.exec_B);
+        double* gemm_c = static_cast<double*>(device_c_trans_raw_);
+
+        const double alpha = 1.0;
+        const double beta = 0.0;
+        const cublasOperation_t op_a = plan_->gemm_trans_A ? CUBLAS_OP_T : CUBLAS_OP_N;
+        const cublasOperation_t op_b = plan_->gemm_trans_B ? CUBLAS_OP_T : CUBLAS_OP_N;
+        const int lda = plan_->gemm_trans_A ? plan_->gemm_k : plan_->gemm_m;
+        const int ldb = plan_->gemm_trans_B ? plan_->gemm_n : plan_->gemm_k;
+
+        for (int i = 0; i < iterations; ++i) {
+            check_cublas_status(
+                cublasGemmEx(
+                    runtime_.cublas_handle,
+                    op_a,
+                    op_b,
+                    plan_->gemm_m,
+                    plan_->gemm_n,
+                    plan_->gemm_k,
+                    &alpha,
+                    gemm_a,
+                    CUDA_R_64F,
+                    lda,
+                    gemm_b,
+                    CUDA_R_64F,
+                    ldb,
+                    &beta,
+                    gemm_c,
+                    CUDA_R_64F,
+                    plan_->gemm_m,
+                    CUBLAS_COMPUTE_64F,
+                    CUBLAS_GEMM_DEFAULT_TENSOR_OP),
+                "cublasGemmEx(warmup)");
+        }
+
+        check_cuda_status(cudaDeviceSynchronize(), "cudaDeviceSynchronize(ttgt warmup)");
+        return true;
+    }
+
+    void zero_output() override
+    {
+        HANDLE_CUDA_ERROR(cudaMemset(device_c_raw_, 0, output_bytes_));
+        HANDLE_CUDA_ERROR(cudaMemset(device_c_trans_raw_, 0, output_bytes_));
+        device_output_raw_ = device_c_raw_;
     }
 
     const void* input_left_host_data() const override
@@ -361,6 +239,7 @@ private:
         device_c_raw_ = device_c_.get();
         device_c_trans_raw_ = device_c_trans_.get();
         device_output_raw_ = device_c_raw_;
+        output_bytes_ = sizeof(ValueType) * elements_c;
 
         HANDLE_CUDA_ERROR(cudaMemcpy(device_a_raw_, host_a, sizeof(ValueType) * elements_a, cudaMemcpyHostToDevice));
         HANDLE_CUDA_ERROR(cudaMemcpy(device_b_raw_, host_b, sizeof(ValueType) * elements_b, cudaMemcpyHostToDevice));
@@ -368,7 +247,7 @@ private:
         HANDLE_CUDA_ERROR(cudaMemset(device_c_trans_raw_, 0, sizeof(ValueType) * elements_c));
     }
 
-    std::shared_ptr<const ttgt_cuTT_handle> plan_;
+    std::shared_ptr<ttgt_cuTT_handle> plan_;
     ttgt_cuTT_runtime runtime_;
     std::unique_ptr<void, DeviceDeleter> device_a_;
     std::unique_ptr<void, DeviceDeleter> device_a_trans_;
@@ -383,6 +262,7 @@ private:
     void* device_c_raw_ = nullptr;
     void* device_c_trans_raw_ = nullptr;
     void* device_output_raw_ = nullptr;
+    size_t output_bytes_ = 0;
     std::vector<unsigned char> host_a_storage_;
     std::vector<unsigned char> host_b_storage_;
 };
@@ -423,7 +303,8 @@ std::shared_ptr<TconT::PlanImpl> plan_ttgt_cutt(const TconT::TCEquation& desc)
     check_cuda_status(cudaFree(nullptr), "cudaFree(nullptr)");
 
     ttgt_cuTT_handle plan;
-    ttgt_cuTT_plan(plan, desc.modeC, desc.modeA, desc.modeB, desc.extent);
+    ttgt_cuTT_plan(plan, desc.modeC, desc.modeA, desc.modeB, desc.extent, -1);
+    print_ttgt_plan_debug(plan, desc);
 
     return std::make_shared<TTGTPlanImpl>(std::move(plan), desc);
 }
