@@ -756,7 +756,8 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                 if opt > 2 :
                     f.write("\t" * tab + f"int m_base = g_m_iter + (cnt_{input_a} << 3);\n")
             else :
-                f.write("\t" * tab + f"int m_base = (cnt_{input_a} << 3);\n") 
+                if opt > 2 :
+                    f.write("\t" * tab + f"int m_base = (cnt_{input_a} << 3);\n") 
         
             #
             f.write("\t" * tab + f"int base_{input_a} = base_iter + (cnt_{input_a} << 3) * intra_stride;\n")
@@ -767,6 +768,7 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
             if a_split_flag :
                 if opt > 2 :
                     f.write("\t" * tab + f"int m_base = g_m_iter;\n")
+
             #
             f.write("\t" * tab + f"int base_{input_a} = base_iter;\n")
         
@@ -878,8 +880,8 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                     #     full_condition.append(f"(m_base <= rng_{partial_a})")
                     if right_frag_size == 16 :
                         full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-                    # else :
-                    #     full_condition.append(f"(n_base <= rng_{frag_partial_b})")
+                    else :
+                        full_condition.append(f"(8 <= rng_{frag_partial_b})")
 
                     # if left_frag_size == 16 and right_frag_size == 16 :
                     if right_frag_size == 16 :
@@ -900,8 +902,8 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                     full_condition.append(f"(g_n_iter < rng_{reg_partial_b})")
                     if right_frag_size == 16 :
                         full_condition.append(f"(n_base + 8 <= rng_{frag_partial_b})")
-                    # else :
-                    #     full_condition.append(f"(n_base <= rng_{frag_partial_b})")
+                    else :
+                        full_condition.append(f"(8 <= rng_{frag_partial_b})")
                     # if left_frag_size == 16 and right_frag_size == 16 :
                     if right_frag_size == 16 :
                         scatter_store.append(f"scatter_store_tail2(&dev_t3[dst], m_base, g_n_iter, n_base, rng_{partial_a}, rng_{reg_partial_b}, rng_{frag_partial_b}, intra_stride, t3_frag[frag_idx]);\n")
@@ -929,8 +931,8 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                 elif opt == 5 or opt == 6 :
                     if left_frag_size == 16 :
                         full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-                    # else :
-                    #     full_condition.append(f"(m_base <= rng_{frag_partial_a})")
+                    else :
+                        full_condition.append(f"(8 <= rng_{frag_partial_a})")
                     # if right_frag_size == 16 :
                     full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
                     # else :
@@ -951,8 +953,8 @@ def tc_code_kernel_body(f, l_inputs_addr, l_external_index, l_internal_index, l_
                     full_condition.append(f"(g_m_iter < rng_{reg_partial_a})")
                     if left_frag_size == 16 :
                         full_condition.append(f"(m_base + 8 <= rng_{frag_partial_a})")
-                    # else :
-                    #     full_condition.append(f"(m_base <= rng_{frag_partial_a})")
+                    else :
+                        full_condition.append(f"(8 <= rng_{frag_partial_a})")
                     # if right_frag_size == 16 :
                     full_condition.append(f"(n_base + 8 <= rng_{partial_b})")
                     # else :

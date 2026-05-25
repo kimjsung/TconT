@@ -154,7 +154,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
 
     #
     partial_condition = []
-    if opt == 0 :
+    if opt == 0 :                                                                       # left and right is split
         # if left_frag_size == 16 :
         partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
         # else :
@@ -163,7 +163,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
         partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
         # else :
         #     partial_condition.append(f"(id_n) < rng_{partial_b}")
-    elif opt == 1 :
+    elif opt == 1 :                                                                     # left is split
         #
         if kernel_num == 0 :
             # if left_frag_size == 16 :
@@ -190,7 +190,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
                 partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
             else :
                 partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
-    elif opt == 2 :
+    elif opt == 2 :                                                                     # right is split
         #
         if kernel_num == 0 :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
@@ -209,10 +209,10 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
             #     partial_condition.append(f"(id_n) < rng_{partial_b}")
         else :
             partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
-            # if left_frag_size == 16 :
-            partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
-            # else :
-            #     partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
+            if left_frag_size == 16 :
+                partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
+            else :
+                partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
             # if right_frag_size == 16 :
             partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
             # else :

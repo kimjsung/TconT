@@ -254,14 +254,21 @@ def get_configurations(l_outer_group, tensors, index_to_extent, l_configurations
                             print("============================================================================", file=f)
 
                 if len(pruned_config) < 1 :
+                    print(
+                        f"[Code Generator][get_configurations] WARNING : apply_pruning() returned no configuration for "
+                        f"eq={equation}, variant={variant_num}. Falling back to the best unpruned configuration.",
+                        file=sys.stderr,
+                    )
                     tc_cost_model.cost_model(l_config, data_type)
                     l_config.sort(key = lambda x: x.cost_total_v2)
                     l_configurations_outer_group.append(l_config[0])
                     if configuration_info_flag :
                         os.makedirs("pruning_results", exist_ok=True)
                         with open(f"pruning_results/error_{equation}.txt", "a") as f :
-                            f.write(f"eq : {equation}, variant : {variant_num}, # of configs before pruning : {len(l_config)}, # of configs after pruning : {len(pruned_config)}\n")
-                    sys.exit()
+                            f.write(
+                                f"eq : {equation}, variant : {variant_num}, # of configs before pruning : {len(l_config)}, "
+                                f"# of configs after pruning : {len(pruned_config)}, fallback : best_unpruned\n"
+                            )
                 else :
                     tc_cost_model.cost_model(pruned_config, data_type)
                     pruned_config.sort(key = lambda x: x.cost_total_v2)

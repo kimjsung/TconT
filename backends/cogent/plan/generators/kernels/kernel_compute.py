@@ -534,7 +534,7 @@ def tc_code_kernel_dev_compute_body(f, l_splited_indices_size, input_a, input_b,
                 f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
             else :
                 # f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset + ({input_a}_fragment_offset ^ ll)];\n\n")
-                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset)];\n\n")
+                f.write("\t" * tab + f"{input_a}_frag.x[0] = sm_{input_a}[{input_a}_offset];\n\n")
 
     #
     if b_double2_flag :

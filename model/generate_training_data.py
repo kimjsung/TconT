@@ -337,13 +337,20 @@ def write_csv(path, rows, backends):
 def load_existing_rows(path):
     if not path.exists():
         return []
-    rows = []
+    deduped_rows = []
+    row_index_by_key = {}
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if line:
-                rows.append(json.loads(line))
-    return rows
+                row = json.loads(line)
+                key = (row.get("input_path", ""), row.get("precision", ""))
+                if key in row_index_by_key:
+                    deduped_rows[row_index_by_key[key]] = row
+                else:
+                    row_index_by_key[key] = len(deduped_rows)
+                    deduped_rows.append(row)
+    return deduped_rows
 
 
 def completed_input_keys(rows, backends):
@@ -351,7 +358,10 @@ def completed_input_keys(rows, backends):
     for row in rows:
         key = (row.get("input_path", ""), row.get("precision", ""))
         backend_results = row.get("backend_results", {})
-        if all(backend in backend_results for backend in backends):
+        if all(
+            backend in backend_results and backend_results[backend].get("status") == "OK"
+            for backend in backends
+        ):
             completed.add(key)
     return completed
 
@@ -398,6 +408,10 @@ def main():
         dataset_jsonl.unlink()
 
     rows = load_existing_rows(dataset_jsonl) if args.append else []
+    row_index_by_key = {
+        (row.get("input_path", ""), row.get("precision", "")): index
+        for index, row in enumerate(rows)
+    }
     completed = completed_input_keys(rows, args.backends) if args.append else set()
 
     log(f"Python executable : {sys.executable}", args.verbose)
@@ -435,11 +449,13 @@ def main():
             log(f"  [{backend}] {summary}", args.verbose)
 
         joined = join_problem_rows(input_path, args.precision, backend_rows, args.tie_tolerance)
-        rows.append(joined)
+        if key in row_index_by_key:
+            rows[row_index_by_key[key]] = joined
+        else:
+            row_index_by_key[key] = len(rows)
+            rows.append(joined)
 
-        with dataset_jsonl.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(joined, ensure_ascii=False) + "\n")
-
+    write_jsonl(dataset_jsonl, rows)
     write_csv(dataset_csv, rows, args.backends)
     write_manifest(manifest_path, args, input_roots, len(sharded_files), rows)
 

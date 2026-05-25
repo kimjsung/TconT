@@ -65,6 +65,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+build_model_root/
+build_model_tools/
 develop-eggs/
 dist/
 downloads/
@@ -231,4 +233,6 @@ pyrightconfig.json
 
 .agents/
 
+model/data/
+model/results/
 # End of https://www.toptal.com/developers/gitignore/api/c++,python,cmake
