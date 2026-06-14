@@ -101,7 +101,7 @@ def build_configurations(each_tc, l_info_split_idx, l_representative_problem_siz
         l_tiles_REG_Y       = [1, 2, 4, 8, 16]
         element_size        = 8
     else:
-        l_tiles_FRAG_X      = [16, 32]
+        l_tiles_FRAG_X      = [8, 16]
         l_tiles_FRAG_Y      = [16, 32]
         l_tiles_FRAG_K      = [8, 16, 32]
         l_tiles_REG_X       = [1, 2, 4, 8, 16, 32]

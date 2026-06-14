@@ -8,6 +8,7 @@ if __name__ == "__main__" :
 
     # data type
     dtype = data["type"]
+    hardware = data.get("hardware")
 
     # index for tensor
     t3 = [chr(i) for i in data["modeC"]]
@@ -80,7 +81,7 @@ if __name__ == "__main__" :
     l_inner_groups, str_binary_input = config.tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, variant_num, opt_print, dtype)
     l_temp_inner_output, l_kernal_binary = config.tc_gen_processing_inner_group(l_inner_groups, equation_info, opt_print, dtype)
 
-    kernel_bin = config.make_kernel_name(l_kernal_binary)
+    kernel_bin = config.make_kernel_name(l_kernal_binary, hardware)
     launch_config = config.make_launch_config(l_kernal_binary, kernel_bin, l_temp_inner_output[0][4], l_temp_inner_output[0][5], l_temp_inner_output[0][8], index_to_extent)
 
     backend_path = "backends/cogent"

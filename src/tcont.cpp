@@ -8,6 +8,7 @@
 #include <cuda_runtime.h>
 
 #include "tcont.hpp"
+#include "backend_model_selector.hpp"
 #include "cogent.hpp"
 #include "ttgt_cutt_backend.hpp"
 
@@ -17,9 +18,7 @@ namespace TconT
     {
         Backend select_backend_by_model(const TCEquation& desc)
         {
-            (void)desc;
-            std::cout << "[TconT] Model selection is not implemented yet; falling back to Cogent" << std::endl;
-            return Backend::COGENT;
+            return select_backend_by_exported_model(desc);
         }
     }
 

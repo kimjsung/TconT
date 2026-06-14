@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
         TconT::ExecutionPlan plan = TconT::plan(desc);
         std::printf("[TconT] backend    : %s\n", TconT::backend_name(plan.backend));
         const TconT::ExecutionRun run = TconT::prepare(plan);
-        const TconT::RunOptions options{1, 1};
+        const TconT::RunOptions options{100, 200};
 
         TconT::warmup(run, options.warmup);
         TconT::zero_output(run);

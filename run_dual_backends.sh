@@ -2,11 +2,13 @@
 #SBATCH -J TCCG_DUAL
 #SBATCH -p amd_a100nv_8
 #SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH -o dual.out
 #SBATCH -e %x.%j.err
 #SBATCH --time=02:30:00
 #SBATCH --gres=gpu:1
+#SBATCH --gpu-bind=single:1
 #SBATCH --comment etc
 
 set -euo pipefail
@@ -64,6 +66,7 @@ VERIFY_FLAG="${VERIFY_FLAG:---verify}"
 BACKENDS="${BACKENDS:-cogent ttgt}"
 RESULT_ROOT="${RESULT_ROOT:-${SCRIPT_DIR}/results_dual}"
 PYTHON_ARGS=()
+export PYTHONUNBUFFERED=1
 
 case "${VERIFY_FLAG}" in
     ""|"--verify")
@@ -79,11 +82,11 @@ case "${VERIFY_FLAG}" in
 esac
 
 case "${COGENT_CUBIN_COMPILE_OPT}" in
-    DEFAULT|A100)
+    DEFAULT|A100|H100|H200)
         ;;
     *)
         echo "[Error] Unsupported COGENT_CUBIN_COMPILE_OPT: ${COGENT_CUBIN_COMPILE_OPT}" >&2
-        echo "[Error] Use one of: DEFAULT, A100" >&2
+        echo "[Error] Use one of: DEFAULT, A100, H100, H200" >&2
         exit 1
         ;;
 esac
@@ -120,6 +123,26 @@ echo "[Slurm] Verify flag  : ${VERIFY_FLAG}"
 echo "[Slurm] Result root  : ${RESULT_ROOT}"
 echo "[Slurm] Host         : $(hostname)"
 echo "[Slurm] Job ID       : ${SLURM_JOB_ID:-local}"
+echo "[Slurm] Job GPUs     : ${SLURM_JOB_GPUS:-unset}"
+echo "[Slurm] CUDA visible : ${CUDA_VISIBLE_DEVICES:-unset}"
+
+if [[ -n "${SLURM_JOB_ID:-}" && -z "${CUDA_VISIBLE_DEVICES:-}" && "${ALLOW_UNBOUND_GPU:-0}" != "1" ]]; then
+    echo "[Warning] CUDA_VISIBLE_DEVICES is not set in the batch shell." >&2
+    echo "[Warning] The benchmark will run through srun so the job step can apply GPU binding." >&2
+fi
+
+if [[ -n "${SLURM_JOB_ID:-}" && -n "${CUDA_VISIBLE_DEVICES:-}" && "${ALLOW_UNBOUND_GPU:-0}" != "1" ]]; then
+    IFS=',' read -r -a visible_gpu_list <<< "${CUDA_VISIBLE_DEVICES}"
+    if [[ "${#visible_gpu_list[@]}" -ne 1 ]]; then
+        echo "[Warning] Expected one visible GPU in the batch shell, but CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" >&2
+        echo "[Warning] The benchmark will run through srun so the job step can apply GPU binding." >&2
+    fi
+fi
+
+if command -v nvidia-smi >/dev/null 2>&1; then
+    echo "[Slurm] nvidia-smi visible devices:"
+    nvidia-smi --query-gpu=index,uuid,name,utilization.gpu,memory.used,memory.total --format=csv,noheader
+fi
 
 cd "${REPO_ROOT}"
 
@@ -140,13 +163,25 @@ for backend in ${BACKENDS}; do
     echo "[Slurm] Running backend=${backend}"
     echo "[Slurm] Result dir=${RESULT_DIR}"
 
-    PYTHONUNBUFFERED=1 python3 -u "${PY_DRIVER}" \
-        --binary "${BINARY_PATH}" \
-        --output-dir "${RESULT_DIR}" \
-        --start "${START_EQ}" \
-        --end "${END_EQ}" \
-        --backend "${backend}" \
-        "${PYTHON_ARGS[@]}"
+    if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+        srun --ntasks=1 --gpus-per-task=1 --gpu-bind=single:1 \
+            bash -c 'echo "[Slurm step] CUDA visible : ${CUDA_VISIBLE_DEVICES:-unset}"; exec "$@"' bash \
+            python3 -u "${PY_DRIVER}" \
+            --binary "${BINARY_PATH}" \
+            --output-dir "${RESULT_DIR}" \
+            --start "${START_EQ}" \
+            --end "${END_EQ}" \
+            --backend "${backend}" \
+            "${PYTHON_ARGS[@]}"
+    else
+        python3 -u "${PY_DRIVER}" \
+            --binary "${BINARY_PATH}" \
+            --output-dir "${RESULT_DIR}" \
+            --start "${START_EQ}" \
+            --end "${END_EQ}" \
+            --backend "${backend}" \
+            "${PYTHON_ARGS[@]}"
+    fi
 done
 
 echo "[Slurm] Done. Results saved under ${RESULT_ROOT}"

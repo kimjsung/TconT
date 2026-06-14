@@ -151,12 +151,8 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
     f.write("\tdouble x = reg.x;\n")
     f.write("\tdouble y = __shfl_xor_sync(0xFFFFFFFF, reg.y, 4);\n")
     f.write("\tint div4 = (lane & 7) >> 2;\n")
-    f.write("\tint div4_xor1 = div4 ^ 1;\n")
-    f.write("\tdouble val0 = div4 ? y : x;\n")
-    f.write("\tdouble val1 = div4_xor1 ? y : x;\n")
 
     #
-    invariant_condition = []
     partial_condition = []
     if opt == 0 :                                                                       # left and right is split
         # if left_frag_size == 16 :
@@ -174,7 +170,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
             # else :
             #     partial_condition.append(f"(id_m) < rng_{partial_a}")
-            invariant_condition.append(f"g_n_iter < rng_{reg_partial_b}")
+            partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
         elif kernel_num == 1 :
             # if left_frag_size == 16 :
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
@@ -189,7 +185,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
             partial_condition.append(f"(m_base + id_m) < rng_{partial_a}")
             # else :
             #     partial_condition.append(f"(id_m) < rng_{partial_a}")
-            invariant_condition.append(f"g_n_iter < rng_{reg_partial_b}")
+            partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
             if right_frag_size == 16 :
                 partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
             else :
@@ -197,7 +193,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
     elif opt == 2 :                                                                     # right is split
         #
         if kernel_num == 0 :
-            invariant_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
             # if right_frag_size == 16 :
             partial_condition.append(f"(n_base + id_n) < rng_{partial_b}")
             # else :
@@ -212,7 +208,7 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
             # else :
             #     partial_condition.append(f"(id_n) < rng_{partial_b}")
         else :
-            invariant_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
             if left_frag_size == 16 :
                 partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
             else :
@@ -224,8 +220,8 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
     else :
         #
         if kernel_num == 0 :
-            invariant_condition.append(f"g_m_iter < rng_{reg_partial_a}")
-            invariant_condition.append(f"g_n_iter < rng_{reg_partial_b}")
+            partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
         elif kernel_num == 1 :
             if left_frag_size == 16 :
                 partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
@@ -236,42 +232,34 @@ def tc_code_kernel_dev_scatter_store_body(f, l_splited_indices_size, ld_tile_ord
             else :
                 partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
         else :
-            invariant_condition.append(f"g_m_iter < rng_{reg_partial_a}")
+            partial_condition.append(f"g_m_iter < rng_{reg_partial_a}")
             if left_frag_size == 16 :
                 partial_condition.append(f"(m_base + id_m) < rng_{frag_partial_a}")
             else :
                 partial_condition.append(f"(id_m) < rng_{frag_partial_a}")
-            invariant_condition.append(f"g_n_iter < rng_{reg_partial_b}")
+            partial_condition.append(f"g_n_iter < rng_{reg_partial_b}")
             if right_frag_size == 16 :
                 partial_condition.append(f"(n_base + id_n) < rng_{frag_partial_b}")
             else :
                 partial_condition.append(f"(id_n) < rng_{frag_partial_b}")
 
     #
-    if invariant_condition:
-        str_invariant_condition = " && ".join(invariant_condition)
-        f.write(f"\tconst bool partial_invariant = ({str_invariant_condition});\n")
-        if partial_condition:
-            str_partial_condition = "partial_invariant && " + " && ".join(partial_condition)
-        else:
-            str_partial_condition = "partial_invariant"
-    else:
-        str_partial_condition = " && ".join(partial_condition)
+    str_partial_condition = " && ".join(partial_condition)
 
     #
     f.write("\tint id_m = frag_m - div4;\n")
     f.write("\tint id_n = frag_n + div4;\n")
     f.write(f"\tif({str_partial_condition})\n")
     f.write("\t{\n")
-    f.write("\t\tdev_t3[id_m * intra_stride + id_n] = val0;\n")
+    f.write("\t\tdev_t3[id_m * intra_stride + id_n] = (div4 ? y : x);\n")
     f.write("\t}\n\n")
 
     #
-    f.write("\tid_m = frag_m + div4_xor1;\n")
-    f.write("\tid_n = frag_n + div4_xor1;\n")
+    f.write("\tid_m = frag_m + (div4 ^ 1);\n")
+    f.write("\tid_n = frag_n + (div4 ^ 1);\n")
     f.write(f"\tif({str_partial_condition})\n")
     f.write("\t{\n")
-    f.write("\t\tdev_t3[id_m * intra_stride + id_n] = val1;\n")
+    f.write("\t\tdev_t3[id_m * intra_stride + id_n] = ((div4 ^ 1) ? y : x);\n")
     f.write("\t}\n")
 
     f.write("}\n\n")

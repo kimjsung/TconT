@@ -410,6 +410,7 @@ std::shared_ptr<TconT::PlanImpl> plan_cogent(const TconT::TCEquation& desc)
     input["extentB"] = collect_extents(desc.modeB, desc.extent);
     input["op"] = desc.op;
     input["type"] = TconT::scalar_type_name(desc.scalar_type);
+    input["hardware"] = compile_to_cubin_arch(compile_to_cubin_default_flag());
 
     const nlohmann::json output = nlohmann::json::parse(run_planner(input));
 

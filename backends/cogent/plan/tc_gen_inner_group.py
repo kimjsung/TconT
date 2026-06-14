@@ -52,6 +52,30 @@ def _canonicalize_index(index_name, label_map):
         return base_label
     return f"{base_label}s{int(split_suffix) - 1}"
 
+
+def _normalize_hardware_tag(hardware):
+    if hardware is None:
+        return None
+
+    hardware_str = str(hardware).strip().lower()
+    if hardware_str == "":
+        return None
+
+    preset_arch = {
+        "default": "sm_89",
+        "a100": "sm_80",
+        "h100": "sm_90",
+        "h200": "sm_90",
+    }
+    if hardware_str in preset_arch:
+        return preset_arch[hardware_str]
+
+    match = re.search(r"(?:sm_|sm|compute_)?(\d+)", hardware_str)
+    if match is None:
+        return re.sub(r"[^a-z0-9_]+", "_", hardware_str).strip("_")
+
+    return f"sm_{match.group(1)}"
+
 #
 def tc_gen_inner_group(equation_info, tensors, index_to_extent, equation, variant_num, opt_print, data_type) :
     #
@@ -263,7 +287,7 @@ def tc_gen_processing_inner_group(l_inner_groups, l_split_outer_group, opt_print
     return l_temp_inner_output, l_kernal_binary
 
 
-def make_kernel_name(l_kernal_binary):
+def make_kernel_name(l_kernal_binary, hardware=None):
     frag_mapped = l_kernal_binary[0]
     reg_mapped  = l_kernal_binary[1]
     left_indices = l_kernal_binary[2][0][0][1]
@@ -299,6 +323,7 @@ def make_kernel_name(l_kernal_binary):
     warp_str  = 'w.' + 'x'.join(map(str, warp_shape))  # w4x1
     stage_str = 's.' + ''.join(map(str, stage))         # s3
     d2_str    = 'd2.' + 'x'.join(map(str, d2_flag))   # d2.1x1
+    hardware_str = _normalize_hardware_tag(hardware)
 
     parts = [
         out_str, lhs_str, rhs_str, op_str, dtype_str,
@@ -306,6 +331,8 @@ def make_kernel_name(l_kernal_binary):
         frag_str, reg_str,
         warp_str, stage_str, d2_str
     ]
+    if hardware_str is not None:
+        parts.append(hardware_str)
 
     verbose_name = 'kernel__' + '__'.join(parts)
     digest = hashlib.blake2s(verbose_name.encode("utf-8"), digest_size=8).hexdigest()
@@ -316,8 +343,10 @@ def make_kernel_name(l_kernal_binary):
         dtype_str,
         warp_str,
         stage_str,
-        digest,
     ]
+    if hardware_str is not None:
+        short_parts.append(hardware_str)
+    short_parts.append(digest)
 
     kernel_bin = 'kernel__' + '__'.join(short_parts)
     
@@ -442,6 +471,8 @@ def make_launch_config(l_kernal_binary, kernel_bin, l_external_index, l_internal
     internal_tile = tile_sizes[0][1]
     size_internal = index_to_extent[internal_index]
 
+    import sys 
+    print(f"smem_x : {padding[0]}, smem_y : {padding[1]}, block_size : {block_size}", file=sys.stderr)
     #
     launch_config = {
         "kernel_bin" : kernel_bin,
